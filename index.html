@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Gracz Replace - Online</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+        import { getDatabase, ref, set, onValue, update, get } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyCzvDunr2Fc6wFWud663I7gIyQD5mpImak",
+            authDomain: "graczreplace.firebaseapp.com",
+            databaseURL: "https://graczreplace-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "graczreplace",
+            storageBucket: "graczreplace.firebasestorage.app",
+            messagingSenderId: "607999774286",
+            appId: "1:607999774286:web:70cc5de78bbc49eebc7d1f"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        window._firebaseDb = db;
+        window._firebaseRef = ref;
+        window._firebaseSet = set;
+        window._firebaseOnValue = onValue;
+        window._firebaseUpdate = update;
+        window._firebaseGet = get;
+        window._firebaseReady = true;
+        window.dispatchEvent(new Event('firebaseReady'));
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;700;900&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Kanit', sans-serif; background: #f0f4f0; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+        .scene { width: 80px; height: 80px; perspective: 600px; margin: 15px auto; }
+        .dice { width: 100%; height: 100%; position: relative; transform-style: preserve-3d; transition: transform 1.2s cubic-bezier(0.15, 0.85, 0.35, 1.2); }
+        .dice-face { position: absolute; width: 80px; height: 80px; background: white; border: 2px solid #eee; border-radius: 14px; display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); padding: 8px; box-sizing: border-box; box-shadow: inset 0 0 10px rgba(0,0,0,0.05), 0 4px 10px rgba(0,0,0,0.1); }
+        .dot { width: 12px; height: 12px; background-color: #333; border-radius: 50%; align-self: center; justify-self: center; box-shadow: inset 0 1px 3px rgba(0,0,0,0.3); }
+        .dot.red { background-color: #e11d48; }
+        .face-1 { transform: rotateY(0deg) translateZ(40px); }
+        .face-2 { transform: rotateY(90deg) translateZ(40px); }
+        .face-3 { transform: rotateX(90deg) translateZ(40px); }
+        .face-4 { transform: rotateX(-90deg) translateZ(40px); }
+        .face-5 { transform: rotateY(-90deg) translateZ(40px); }
+        .face-6 { transform: rotateY(180deg) translateZ(40px); }
+        @keyframes random-roll { 0% { transform: rotateX(0deg) rotateY(0deg) rotateZ(0deg); } 100% { transform: rotateX(720deg) rotateY(450deg) rotateZ(225deg); } }
+        .dice.rolling { animation: random-roll 0.3s infinite linear; }
+        .log-container { background: rgba(45, 90, 39, 0.95); backdrop-filter: blur(10px); }
+        html, body { overflow-x: hidden; width: 100%; height: 100%; position: fixed; }
+        #root { height: 100%; overflow-y: auto; }
+        @keyframes tileZoomIn { 0% { transform: scale(0.5); opacity: 0; } 65% { transform: scale(1.05); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+        @keyframes tileZoomOut { 0% { transform: scale(1); opacity: 1; } 100% { transform: scale(0.5); opacity: 0; } }
+        .tile-zoom-enter { animation: tileZoomIn 0.35s cubic-bezier(0.34,1.56,0.64,1) forwards; }
+        .tile-zoom-exit  { animation: tileZoomOut 0.25s ease-in forwards; }
+        @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
+        .animate-pulse { animation: pulse 2s infinite; }
+    </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+// ── Firebase helpers (loaded via module) ──
+const waitForFirebase = (cb) => {
+    if (window._firebaseReady) cb();
+    else window.addEventListener('firebaseReady', cb, { once: true });
+};
+const dbRef  = (path) => window._firebaseRef(window._firebaseDb, path);
+const dbSet  = (path, val) => window._firebaseSet(dbRef(path), val);
+const dbUpd  = (path, val) => window._firebaseUpdate(dbRef(path), val);
+const dbOn   = (path, cb) => window._firebaseOnValue(dbRef(path), snap => cb(snap.val()));
+const dbGet  = (path) => window._firebaseGet(dbRef(path)).then(s => s.val());
+
+// ── Helpers ──
+const randomCode = () => Math.random().toString(36).substring(2,7).toUpperCase();
+
+const boardImage = "https://drive.google.com/thumbnail?id=1EXJvk5D8BOsVBST-_gYM-yaQgMjFotEQ&sz=w1600";
+
+const tileCoords = [
+    { x: 11, y: 89 }, { x: 11, y: 78 }, { x: 11, y: 67 }, { x: 11, y: 56 }, { x: 11, y: 45 },
+    { x: 11, y: 34 }, { x: 11, y: 23 }, { x: 11, y: 12 }, { x: 22, y: 12 }, { x: 33, y: 12 },
+    { x: 44, y: 12 }, { x: 55, y: 12 }, { x: 66, y: 12 }, { x: 77, y: 12 }, { x: 89, y: 23 },
+    { x: 89, y: 34 }, { x: 89, y: 45 }, { x: 89, y: 56 }, { x: 89, y: 67 }, { x: 89, y: 78 },
+    { x: 89, y: 89 }, { x: 78, y: 89 }, { x: 67, y: 89 }, { x: 56, y: 89 }, { x: 45, y: 89 },
+    { x: 34, y: 89 }, { x: 20, y: 89 },
+];
+
+const boardTiles = [
+    { name: "START", desc: "เริ่มต้นเส้นทางผู้พิทักษ์โลก" },
+    { name: "พักดื่มน้ำ", desc: "พักดื่มน้ำครึ่งแก้วก่อนเดินต่อ" },
+    { name: "แก้วเคลือบพลาสติก", desc: "คนถัดไปมอบเงินให้ 5 บาท" },
+    { name: "พกแก้วส่วนตัว", desc: "เดินหน้า 1 ช่อง", effect: { move: 1 } },
+    { name: "แวะชมป่า", desc: "อากาศบริสุทธิ์จังเลย" },
+    { name: "ใช้กล่องโฟม", desc: "โดนปรับ 20 บาท" },
+    { name: "ชามเกรซ", desc: "กินอะไรก็ได้จากชามเกรซ" },
+    { name: "ไม่แยกขยะ", desc: "ปั่นจิ้งหรีด 5 ที!" },
+    { name: "หลอดพลาสติก", desc: "โดนดีดหน้าผาก 1 ที!" },
+    { name: "คนก่อนหน้า", desc: "อมน้ำแข็ง 10 วินาที" },
+    { name: "แวะดูปะการัง", desc: "ชมความงามใต้ท้องทะเล" },
+    { name: "ไม่รู้วิธีเข้าเวฟ", desc: "ถอยหลัง 2 ช่อง", effect: { move: -2 } },
+    { name: "ไม่รับถุงพลาสติก", desc: "เดินหน้า 1 ช่อง", effect: { move: 1 } },
+    { name: "แวะช่วยเกษตรกร", desc: "ส่งเยื่อฟางไปผลิตเกรซ" },
+    { name: "เลือก Gracz", desc: "เดินหน้า 2 ช่อง", effect: { move: 2 } },
+    { name: "พก Gracz ไปแคมป์", desc: "สั่งใครทำอะไรก็ได้ 1 อย่าง" },
+    { name: "พักดื่มน้ำ", desc: "ดื่มน้ำให้หมดแก้ว" },
+    { name: "Gracz Bonus", desc: "ทิ้งทวนให้ทุกคนคนละ 2 บาท" },
+    { name: "ทิ้งขยะไม่เป็นที่", desc: "กระโดดตบ 5 รอบ" },
+    { name: "ป้อนของเปรี้ยว", desc: "ป้อนคนตรงข้าม 1 คำ" },
+    { name: "ใส่อาหารร้อนในพลาสติก", desc: "ป่วย หยุดเล่น 2 ตา", effect: { skip: 2 } },
+    { name: "ชวนเพื่อนใช้เกรซ", desc: "เลือก 1 คน เดินหน้าไปพร้อมคุณ 1 ช่อง" },
+    { name: "ท่องเที่ยวอนุรักษ์", desc: "ให้คนถัดไป ลุกนั่ง 5 ที" },
+    { name: "บอกความลับ", desc: "บอกความลับกับคนด้านซ้าย 1 เรื่อง" },
+    { name: "Green Hero Moment", desc: "ทุกมุมปรบมือให้คุณ" },
+    { name: "พักผ่อน", desc: "หยุดเล่น 1 ตา", effect: { skip: 1 } },
+    { name: "FINISH", desc: "คุณคือผู้พิทักษ์โลกตัวจริง!" }
+];
+
+const playerTokens = [
+    { name: 'ทีมเขียว', color: 'bg-[#2D5A27]', hex: '#2D5A27' },
+    { name: 'ทีมฟ้า',   color: 'bg-[#0288D1]', hex: '#0288D1' },
+    { name: 'ทีมเหลือง',color: 'bg-[#FBC02D]', hex: '#FBC02D' },
+    { name: 'ทีมแดง',   color: 'bg-[#D32F2F]', hex: '#D32F2F' },
+];
+
+// ── Components ──
+const Icon = ({ name, size = 24, className = "" }) => {
+    const icons = {
+        leaf:   <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.5 21 2c-2.5 4-3 5.5-4.1 11.2A7 7 0 0 1 11 20z" />,
+        trophy: <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6 M18 9h1.5a2.5 2.5 0 0 0 0-5H18 M4 22h16 M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22 M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22 M18 2H6v7a6 6 0 0 0 12 0V2z" />,
+        copy:   <path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2M8 4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2M8 4h8" />,
+        wifi:   <React.Fragment><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1"/></React.Fragment>,
+    };
+    return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+            {icons[name] || null}
+        </svg>
+    );
+};
+
+const Dice3D = ({ value, rolling }) => {
+    const getRotation = (v) => {
+        const map = { 1:"rotateX(0deg) rotateY(0deg)", 2:"rotateX(0deg) rotateY(-90deg)", 3:"rotateX(-90deg) rotateY(0deg)", 4:"rotateX(90deg) rotateY(0deg)", 5:"rotateX(0deg) rotateY(90deg)", 6:"rotateX(180deg) rotateY(0deg)" };
+        return map[v] || map[1];
+    };
+    return (
+        <div className="scene">
+            <div className={`dice ${rolling ? 'rolling' : ''}`} style={{ transform: rolling ? '' : getRotation(value) }}>
+                <div className="dice-face face-1"><div className="dot red col-start-2 row-start-2"></div></div>
+                <div className="dice-face face-2"><div className="dot col-start-1 row-start-1"></div><div className="dot col-start-3 row-start-3"></div></div>
+                <div className="dice-face face-3"><div className="dot col-start-1 row-start-1"></div><div className="dot col-start-2 row-start-2"></div><div className="dot col-start-3 row-start-3"></div></div>
+                <div className="dice-face face-4"><div className="dot col-start-1 row-start-1"></div><div className="dot col-start-3 row-start-1"></div><div className="dot col-start-1 row-start-3"></div><div className="dot col-start-3 row-start-3"></div></div>
+                <div className="dice-face face-5"><div className="dot col-start-1 row-start-1"></div><div className="dot col-start-3 row-start-1"></div><div className="dot col-start-2 row-start-2"></div><div className="dot col-start-1 row-start-3"></div><div className="dot col-start-3 row-start-3"></div></div>
+                <div className="dice-face face-6"><div className="dot col-start-1 row-start-1"></div><div className="dot col-start-3 row-start-1"></div><div className="dot col-start-1 row-start-2"></div><div className="dot col-start-3 row-start-2"></div><div className="dot col-start-1 row-start-3"></div><div className="dot col-start-3 row-start-3"></div></div>
+            </div>
+        </div>
+    );
+};
+
+const TileZoomModal = ({ tile, player, coord, onDone }) => {
+    const [animClass, setAnimClass] = useState('tile-zoom-enter');
+    useEffect(() => {
+        const t1 = setTimeout(() => setAnimClass('tile-zoom-exit'), 1700);
+        const t2 = setTimeout(() => onDone(), 2000);
+        return () => { clearTimeout(t1); clearTimeout(t2); };
+    }, []);
+    const cropW = 30, cropH = 30;
+    const left = Math.max(0, Math.min(100 - cropW, coord.x - cropW / 2));
+    const top  = Math.max(0, Math.min(100 - cropH, coord.y - cropH / 2));
+    return (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-6">
+            <div className={`w-full max-w-xs ${animClass}`}>
+                <div className="bg-[#2D5A27] text-white text-center py-2 px-4 rounded-t-2xl">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-green-200">{player.name} เหยียบช่อง</p>
+                    <p className="text-lg font-black">{tile.name}</p>
+                </div>
+                <div className="w-full border-x-4 border-[#2D5A27]" style={{ aspectRatio: '1/1', overflow: 'hidden' }}>
+                    <div style={{ width:'100%', height:'100%', backgroundImage:`url(${boardImage})`, backgroundPosition:`${left}% ${top}%`, backgroundSize:`${(100/cropW)*100}% ${(100/cropH)*100}%`, backgroundRepeat:'no-repeat' }} />
+                </div>
+                <div className="bg-white text-center px-4 py-3 rounded-b-2xl border-x-4 border-b-4 border-[#2D5A27]">
+                    <p className="text-sm font-bold text-slate-600 leading-snug">{tile.desc}</p>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ── Main App ──
+const App = () => {
+    const [screen, setScreen] = useState('lobby'); // lobby | waiting | game
+    const [roomCode, setRoomCode] = useState('');
+    const [joinInput, setJoinInput] = useState('');
+    const [myIdx, setMyIdx] = useState(0);
+    const [gameState, setGameState] = useState(null);
+    const [isRolling, setIsRolling] = useState(false);
+    const [lastRoll, setLastRoll] = useState(1);
+    const [showTileZoom, setShowTileZoom] = useState(null);
+    const [showEffectModal, setShowEffectModal] = useState(null);
+    const [copied, setCopied] = useState(false);
+    const [playerCount, setPlayerCount] = useState(2);
+    const [fbReady, setFbReady] = useState(!!window._firebaseReady);
+    const unsubRef = useRef(null);
+
+    useEffect(() => {
+        waitForFirebase(() => setFbReady(true));
+    }, []);
+
+    // ── Listen to room ──
+    useEffect(() => {
+        if (!roomCode || !fbReady) return;
+        if (unsubRef.current) unsubRef.current();
+        unsubRef.current = dbOn(`rooms/${roomCode}`, (data) => {
+            if (!data) return;
+            setGameState(data);
+            if (data.screen === 'game' && screen !== 'game') setScreen('game');
+        });
+        return () => { if (unsubRef.current) unsubRef.current(); };
+    }, [roomCode, fbReady]);
+
+    // ── Create room ──
+    const createRoom = async () => {
+        if (!fbReady) return;
+        const code = randomCode();
+        const players = Array.from({ length: playerCount }, (_, i) => ({
+            id: i, name: playerTokens[i].name, pos: 0, skipTurns: 0, color: playerTokens[i].color, hex: playerTokens[i].hex
+        }));
+        await dbSet(`rooms/${code}`, {
+            screen: 'waiting',
+            players,
+            currentPlayerIdx: 0,
+            lastRoll: 1,
+            logs: ["ยินดีต้อนรับสู่ Gracz!"],
+            winner: null,
+            playerCount,
+        });
+        setRoomCode(code);
+        setMyIdx(0);
+        setScreen('waiting');
+    };
+
+    // ── Join room ──
+    const joinRoom = async () => {
+        if (!fbReady || !joinInput) return;
+        const code = joinInput.toUpperCase();
+        const data = await dbGet(`rooms/${code}`);
+        if (!data) { alert('ไม่พบห้องนี้ครับ'); return; }
+        // หาตำแหน่งว่างถัดไป (ใช้ joinedCount)
+        const joined = data.joinedCount || 1;
+        if (joined >= data.playerCount) { alert('ห้องเต็มแล้วครับ'); return; }
+        await dbUpd(`rooms/${code}`, { joinedCount: joined + 1 });
+        setRoomCode(code);
+        setMyIdx(joined);
+        setScreen(data.screen === 'game' ? 'game' : 'waiting');
+    };
+
+    // ── Start game (host only) ──
+    const startGame = async () => {
+        await dbUpd(`rooms/${roomCode}`, { screen: 'game', joinedCount: gameState?.playerCount || playerCount });
+    };
+
+    const copyCode = () => {
+        navigator.clipboard.writeText(roomCode).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+    };
+
+    // ── Game logic — write to Firebase ──
+    const gs = gameState;
+    const isMyTurn = gs && gs.currentPlayerIdx === myIdx;
+
+    const pushUpdate = (patch) => dbUpd(`rooms/${roomCode}`, patch);
+
+    const handleMove = (playerIdx, steps, isEffect = false) => {
+        if (!gs) return;
+        const newPlayers = gs.players.map((p, i) => {
+            if (i !== playerIdx) return p;
+            let newPos = p.pos + steps;
+            if (newPos >= boardTiles.length - 1) newPos = boardTiles.length - 1;
+            if (newPos < 0) newPos = 0;
+            return { ...p, pos: newPos };
+        });
+        pushUpdate({ players: newPlayers }).then(() => {
+            if (!isEffect) {
+                setTimeout(() => {
+                    const pos = newPlayers[playerIdx].pos;
+                    const tile = boardTiles[pos];
+                    const coord = tileCoords[pos];
+                    setShowTileZoom({
+                        tile, player: newPlayers[playerIdx], coord,
+                        onDone: () => {
+                            setShowTileZoom(null);
+                            checkTileEffect(playerIdx, newPlayers);
+                        }
+                    });
+                }, 1300);
+            }
+        });
+    };
+
+    const checkTileEffect = (playerIdx, players) => {
+        const pList = players || gs.players;
+        const pos = pList[playerIdx].pos;
+        const tile = boardTiles[pos];
+        if (pos === boardTiles.length - 1) {
+            pushUpdate({ winner: pList[playerIdx].name });
+            return;
+        }
+        if (tile.effect) {
+            setShowEffectModal({
+                player: pList[playerIdx], tile,
+                onClose: () => {
+                    setShowEffectModal(null);
+                    if (tile.effect.move) handleMove(playerIdx, tile.effect.move, true);
+                    if (tile.effect.skip) {
+                        const np = pList.map((p, i) => i === playerIdx ? { ...p, skipTurns: tile.effect.skip } : p);
+                        pushUpdate({ players: np });
+                    }
+                    moveToNextPlayer(pList);
+                }
+            });
+        } else {
+            moveToNextPlayer(pList);
+        }
+    };
+
+    const moveToNextPlayer = (players) => {
+        const pList = players || gs.players;
+        let next = (gs.currentPlayerIdx + 1) % pList.length;
+        let newPlayers = [...pList];
+        let newLogs = [...(gs.logs || [])];
+        if (newPlayers[next].skipTurns > 0) {
+            newLogs = [`${newPlayers[next].name} พักตา`, ...newLogs].slice(0, 5);
+            newPlayers[next] = { ...newPlayers[next], skipTurns: newPlayers[next].skipTurns - 1 };
+            next = (next + 1) % pList.length;
+        }
+        pushUpdate({ currentPlayerIdx: next, players: newPlayers, logs: newLogs });
+    };
+
+    const rollDice = () => {
+        if (!isMyTurn || isRolling || showEffectModal || showTileZoom || gs?.winner) return;
+        setIsRolling(true);
+        const dice = Math.floor(Math.random() * 6) + 1;
+        setTimeout(() => {
+            setLastRoll(dice);
+            setIsRolling(false);
+            const newLogs = [`${gs.players[myIdx].name} ทอยได้ ${dice}`, ...(gs.logs || [])].slice(0, 5);
+            pushUpdate({ lastRoll: dice, logs: newLogs });
+            handleMove(myIdx, dice);
+        }, 1000);
+    };
+
+    // ── Screens ──
+    if (!fbReady) return (
+        <div className="min-h-full flex items-center justify-center bg-[#f0f4f0]">
+            <p className="text-[#2D5A27] font-black animate-pulse">กำลังเชื่อมต่อ Firebase...</p>
+        </div>
+    );
+
+    // LOBBY
+    if (screen === 'lobby') return (
+        <div className="min-h-full flex items-center justify-center p-6 bg-[#f0f4f0]">
+            <div className="bg-white p-8 rounded-[2.5rem] shadow-xl w-full max-w-sm text-center">
+                <Icon name="leaf" size={64} className="text-[#2D5A27] mx-auto mb-2" />
+                <h1 className="text-3xl font-black text-[#2D5A27] mb-1">GRACZ REPLACE</h1>
+                <div className="flex items-center justify-center gap-1 mb-6 text-green-600 text-xs font-bold">
+                    <Icon name="wifi" size={14} /> Online Multiplayer
+                </div>
+
+                {/* Create room */}
+                <div className="bg-slate-50 p-5 rounded-2xl mb-4">
+                    <p className="text-xs font-bold text-slate-400 mb-3 uppercase">สร้างห้องใหม่</p>
+                    <div className="flex justify-center gap-2 mb-3">
+                        {[2,3,4].map(n => (
+                            <button key={n} onClick={() => setPlayerCount(n)} className={`w-11 h-11 rounded-xl font-bold text-sm transition-all ${playerCount===n?'bg-[#2D5A27] text-white':'bg-white text-slate-400 border'}`}>{n}</button>
+                        ))}
+                    </div>
+                    <button onClick={createRoom} className="w-full bg-[#2D5A27] text-white py-3 rounded-xl font-black text-base shadow">
+                        สร้างห้อง ({playerCount} คน)
+                    </button>
+                </div>
+
+                {/* Join room */}
+                <div className="bg-slate-50 p-5 rounded-2xl">
+                    <p className="text-xs font-bold text-slate-400 mb-3 uppercase">เข้าร่วมห้อง</p>
+                    <input
+                        value={joinInput} onChange={e => setJoinInput(e.target.value.toUpperCase())}
+                        placeholder="กรอก Room Code"
+                        className="w-full border-2 border-slate-200 rounded-xl px-4 py-2 text-center font-black text-lg tracking-widest mb-3 focus:outline-none focus:border-[#2D5A27]"
+                        maxLength={5}
+                    />
+                    <button onClick={joinRoom} disabled={!joinInput} className="w-full bg-[#0288D1] text-white py-3 rounded-xl font-black text-base shadow disabled:opacity-40">
+                        เข้าห้อง
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+
+    // WAITING ROOM
+    if (screen === 'waiting') return (
+        <div className="min-h-full flex items-center justify-center p-6 bg-[#f0f4f0]">
+            <div className="bg-white p-8 rounded-[2.5rem] shadow-xl w-full max-w-sm text-center">
+                <Icon name="wifi" size={48} className="text-[#2D5A27] mx-auto mb-4" />
+                <h2 className="text-2xl font-black text-[#2D5A27] mb-2">รอผู้เล่น...</h2>
+                <p className="text-slate-400 text-sm mb-6">แชร์ Room Code ให้เพื่อนครับ</p>
+
+                {/* Room Code */}
+                <div className="bg-[#2D5A27] rounded-2xl p-4 mb-6">
+                    <p className="text-green-300 text-xs font-bold mb-1">ROOM CODE</p>
+                    <p className="text-white text-4xl font-black tracking-[0.3em]">{roomCode}</p>
+                    <button onClick={copyCode} className="mt-2 flex items-center gap-1 mx-auto text-green-300 text-xs font-bold">
+                        <Icon name="copy" size={12} /> {copied ? 'คัดลอกแล้ว!' : 'คัดลอก'}
+                    </button>
+                </div>
+
+                {/* Players joined */}
+                <div className="space-y-2 mb-6">
+                    {Array.from({ length: gs?.playerCount || playerCount }, (_, i) => (
+                        <div key={i} className="flex items-center gap-3 px-4 py-2 rounded-xl bg-slate-50">
+                            <div className="w-3 h-3 rounded-full" style={{ background: playerTokens[i].hex }} />
+                            <span className="text-sm font-bold text-slate-600">{playerTokens[i].name}</span>
+                            <span className="ml-auto text-xs text-slate-400">
+                                {i === 0 ? '👑 Host' : i < (gs?.joinedCount || 1) ? '✅ เข้าร่วมแล้ว' : '⏳ รออยู่...'}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+
+                {myIdx === 0 ? (
+                    <button onClick={startGame}
+                        disabled={(gs?.joinedCount || 1) < (gs?.playerCount || playerCount)}
+                        className="w-full bg-[#2D5A27] text-white py-4 rounded-2xl font-black text-lg shadow disabled:opacity-40">
+                        {(gs?.joinedCount || 1) < (gs?.playerCount || playerCount) ? 'รอผู้เล่นเข้าร่วม...' : 'เริ่มเกม!'}
+                    </button>
+                ) : (
+                    <p className="text-slate-400 font-bold animate-pulse">รอ Host เริ่มเกม...</p>
+                )}
+            </div>
+        </div>
+    );
+
+    // GAME OVER
+    if (gs?.winner) return (
+        <div className="min-h-full bg-[#2D5A27] flex flex-col items-center justify-center p-6 text-white text-center">
+            <Icon name="trophy" size={100} className="text-yellow-400 mb-6" />
+            <h1 className="text-4xl font-black mb-2 uppercase">ยินดีด้วย!</h1>
+            <p className="text-xl mb-8">{gs.winner} ชนะแล้ว!</p>
+            <button onClick={() => { setScreen('lobby'); setRoomCode(''); setGameState(null); }}
+                className="bg-white text-[#2D5A27] px-8 py-3 rounded-full font-black">กลับหน้าหลัก</button>
+        </div>
+    );
+
+    // GAME
+    if (screen === 'game' && gs) {
+        const players = gs.players || [];
+        const currentPlayerIdx = gs.currentPlayerIdx || 0;
+        const diceVal = gs.lastRoll || 1;
+        const logs = gs.logs || [];
+        const currentPlayer = players[currentPlayerIdx] || {};
+
+        return (
+            <div className="min-h-full flex flex-col bg-[#f0f4f0]">
+                {/* Player bar */}
+                <div className="flex justify-center gap-2 p-3 bg-white/80 sticky top-0 z-30 overflow-x-auto whitespace-nowrap border-b">
+                    {players.map((p, i) => (
+                        <div key={i} className={`flex items-center gap-2 px-3 py-1.5 rounded-full border-2 transition-all ${currentPlayerIdx===i?'border-[#2D5A27] bg-green-50 scale-105':'border-transparent opacity-50'}`}>
+                            <div className="w-3 h-3 rounded-full" style={{ background: p.hex }} />
+                            <span className="text-xs font-bold text-[#2D5A27]">{p.name}</span>
+                            {i === myIdx && <span className="text-[9px] text-green-500 font-black">(ฉัน)</span>}
+                        </div>
+                    ))}
+                </div>
+
+                {/* Board */}
+                <div className="relative w-full aspect-[4/3] bg-white p-1">
+                    <img src={boardImage} alt="Board" className="w-full h-full object-contain" />
+                    <div className="absolute inset-0">
+                        {players.map((p, i) => {
+                            const coords = tileCoords[p.pos] || { x: 0, y: 0 };
+                            const offset = { x: (i%2===0?-1:1), y: (i<2?-1:1) };
+                            return (
+                                <div key={i} className="absolute w-[4.5%] aspect-square rounded-full border-2 border-white shadow-lg transition-all duration-700 z-20 flex items-center justify-center text-[8px] text-white font-black"
+                                    style={{ left:`${coords.x+offset.x}%`, top:`${coords.y+offset.y}%`, transform:'translate(-50%,-50%)', background: p.hex }}>
+                                    {i+1}
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                {/* Controls */}
+                <div className="flex-1 p-4 flex flex-col items-center justify-between">
+                    <div className="text-center w-full">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                            ตาของ: <span style={{ color: currentPlayer.hex }}>{currentPlayer.name}</span>
+                            {isMyTurn && <span className="text-green-500"> (ตาคุณ!)</span>}
+                        </p>
+                        <Dice3D value={diceVal} rolling={isRolling} />
+                    </div>
+
+                    <div className="w-full space-y-3">
+                        <button onClick={rollDice}
+                            disabled={!isMyTurn || isRolling || !!showEffectModal || !!showTileZoom}
+                            className={`w-full py-5 rounded-2xl font-black text-xl text-white shadow-xl active:scale-95 transition-all ${
+                                !isMyTurn ? 'bg-slate-300' : isRolling ? 'bg-slate-300' : 'bg-[#2D5A27]'
+                            }`}>
+                            {isRolling ? 'กำลังทอย...' : isMyTurn ? 'ทอยลูกเต๋า' : `รอ ${currentPlayer.name}...`}
+                        </button>
+
+                        <div className="log-container p-4 rounded-2xl text-white min-h-[80px]">
+                            <div className="text-[9px] uppercase font-bold text-green-300 mb-2">ประวัติการเล่น</div>
+                            <div className="space-y-1">
+                                {logs.map((log, i) => (
+                                    <div key={i} className={`text-[11px] ${i===0?'opacity-100':'opacity-40'}`}>• {log}</div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {showTileZoom && (
+                    <TileZoomModal tile={showTileZoom.tile} player={showTileZoom.player} coord={showTileZoom.coord} onDone={showTileZoom.onDone} />
+                )}
+
+                {showEffectModal && (
+                    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-6">
+                        <div className="bg-white rounded-[2.5rem] p-8 w-full max-w-xs text-center border-t-[12px] border-[#2D5A27]">
+                            <h2 className="text-xl font-black text-slate-800 mb-2">{showEffectModal.tile.name}</h2>
+                            <p className="text-sm text-slate-500 mb-8 font-bold leading-relaxed">{showEffectModal.tile.desc}</p>
+                            <button onClick={showEffectModal.onClose}
+                                className="w-full py-4 rounded-xl font-black text-white"
+                                style={{ background: showEffectModal.player.hex }}>ตกลง</button>
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    return null;
+};
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+</script>
+</body>
+</html>
