@@ -58,6 +58,22 @@
         .tile-zoom-exit  { animation: tileZoomOut 0.25s ease-in forwards; }
         @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
         .animate-pulse { animation: pulse 2s infinite; }
+        @keyframes sparkle-rotate { 0% { transform: rotate(0deg) scale(1); opacity:1; } 50% { transform: rotate(180deg) scale(1.15); opacity:0.8; } 100% { transform: rotate(360deg) scale(1); opacity:1; } }
+        @keyframes sparkle-ping { 0%,100% { transform: scale(1); opacity:0.9; } 50% { transform: scale(1.3); opacity:0.4; } }
+        .sparkle-ring { position:absolute; inset:-18px; border-radius:50%; pointer-events:none; animation: sparkle-ping 1.2s ease-in-out infinite; }
+        .sparkle-star { position:absolute; font-size:18px; animation: sparkle-rotate 2s linear infinite; transform-origin: center; }
+        .finish-glow { box-shadow: 0 0 0 6px rgba(251,191,36,0.5), 0 0 30px 10px rgba(251,191,36,0.35), 0 0 60px 20px rgba(251,191,36,0.15); }
+        @keyframes boxBounce { 0%,100%{transform:translateY(0) scale(1);} 30%{transform:translateY(-18px) scale(1.08);} 60%{transform:translateY(-8px) scale(1.03);} }
+        @keyframes boxShake { 0%,100%{transform:rotate(0deg);} 20%{transform:rotate(-8deg);} 40%{transform:rotate(8deg);} 60%{transform:rotate(-5deg);} 80%{transform:rotate(5deg);} }
+        @keyframes lidOpen { 0%{transform:rotateX(0deg);transform-origin:bottom;} 100%{transform:rotateX(-120deg);transform-origin:bottom;} }
+        @keyframes couponSlideUp { 0%{transform:translateY(40px);opacity:0;} 100%{transform:translateY(0);opacity:1;} }
+        @keyframes confettiFall { 0%{transform:translateY(-20px) rotate(0deg);opacity:1;} 100%{transform:translateY(300px) rotate(720deg);opacity:0;} }
+        @keyframes glowPulse { 0%,100%{box-shadow:0 0 15px 3px rgba(251,191,36,0.6);} 50%{box-shadow:0 0 30px 8px rgba(251,191,36,0.9);} }
+        .box-bounce { animation: boxBounce 1s ease-in-out infinite; }
+        .box-shake  { animation: boxShake 0.5s ease-in-out; }
+        .lid-open   { animation: lidOpen 0.4s ease-out forwards; }
+        .coupon-slide { animation: couponSlideUp 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards; }
+        .coupon-glow  { animation: glowPulse 1.5s ease-in-out infinite; }
     </style>
 </head>
 <body>
@@ -82,12 +98,35 @@ const randomCode = () => Math.random().toString(36).substring(2,7).toUpperCase()
 const boardImage = "https://drive.google.com/thumbnail?id=1EXJvk5D8BOsVBST-_gYM-yaQgMjFotEQ&sz=w1600";
 
 const tileCoords = [
-    { x: 11, y: 89 }, { x: 11, y: 78 }, { x: 11, y: 67 }, { x: 11, y: 56 }, { x: 11, y: 45 },
-    { x: 11, y: 34 }, { x: 11, y: 23 }, { x: 11, y: 12 }, { x: 22, y: 12 }, { x: 33, y: 12 },
-    { x: 44, y: 12 }, { x: 55, y: 12 }, { x: 66, y: 12 }, { x: 77, y: 12 }, { x: 89, y: 23 },
-    { x: 89, y: 34 }, { x: 89, y: 45 }, { x: 89, y: 56 }, { x: 89, y: 67 }, { x: 89, y: 78 },
-    { x: 89, y: 89 }, { x: 78, y: 89 }, { x: 67, y: 89 }, { x: 56, y: 89 }, { x: 45, y: 89 },
-    { x: 34, y: 89 }, { x: 20, y: 89 },
+    { x: 11, y: 89 }, // 0  START
+    { x: 11, y: 78 }, // 1
+    { x: 11, y: 67 }, // 2
+    { x: 11, y: 56 }, // 3
+    { x: 11, y: 45 }, // 4
+    { x: 11, y: 34 }, // 5
+    { x: 11, y: 23 }, // 6
+    { x: 11, y: 12 }, // 7  มุมซ้ายบน
+    { x: 22, y: 12 }, // 8
+    { x: 33, y: 12 }, // 9
+    { x: 44, y: 12 }, // 10
+    { x: 55, y: 12 }, // 11
+    { x: 66, y: 12 }, // 12
+    { x: 77, y: 12 }, // 13
+    { x: 89, y: 12 }, // 14 มุมขวาบน
+    { x: 89, y: 23 }, // 15
+    { x: 89, y: 34 }, // 16
+    { x: 89, y: 45 }, // 17
+    { x: 89, y: 56 }, // 18
+    { x: 89, y: 67 }, // 19
+    { x: 89, y: 78 }, // 20
+    { x: 89, y: 89 }, // 21 มุมขวาล่าง
+    { x: 78, y: 89 }, // 22
+    { x: 67, y: 89 }, // 23
+    { x: 56, y: 89 }, // 24
+    { x: 45, y: 89 }, // 25
+    { x: 34, y: 89 }, // 26
+    { x: 20, y: 89 }, // 27 เติมพลัง
+    { x: 11, y: 89 }, // 28 FINISH
 ];
 
 const boardTiles = [
@@ -112,19 +151,179 @@ const boardTiles = [
     { name: "ทิ้งขยะไม่เป็นที่", desc: "กระโดดตบ 5 รอบ" },
     { name: "ป้อนของเปรี้ยว", desc: "ป้อนคนตรงข้าม 1 คำ" },
     { name: "ใส่อาหารร้อนในพลาสติก", desc: "ป่วย หยุดเล่น 2 ตา", effect: { skip: 2 } },
-    { name: "ชวนเพื่อนใช้เกรซ", desc: "เลือก 1 คน เดินหน้าไปพร้อมคุณ 1 ช่อง" },
+    { name: "ชวนเพื่อนใช้เกรซ", desc: "เลือก 1 คน เดินหน้าไปพร้อมคุณ 1 ช่อง", effect: { invite: true } },
     { name: "ท่องเที่ยวอนุรักษ์", desc: "ให้คนถัดไป ลุกนั่ง 5 ที" },
     { name: "บอกความลับ", desc: "บอกความลับกับคนด้านซ้าย 1 เรื่อง" },
     { name: "Green Hero Moment", desc: "ทุกมุมปรบมือให้คุณ" },
     { name: "พักผ่อน", desc: "หยุดเล่น 1 ตา", effect: { skip: 1 } },
+    { name: "เติมพลัง", desc: "แวะกินขนมในจานเกรซ" },
     { name: "FINISH", desc: "คุณคือผู้พิทักษ์โลกตัวจริง!" }
 ];
 
+const gdrive = (id) => `https://drive.google.com/thumbnail?id=${id}&sz=w600`;
+const tileImages = [
+    gdrive("1iv5VkVKf11cjOKExPfk546_2JdWhK_NH"), // 0 START
+    gdrive("1tpcdb0UE_Y9anBZnzlW8S5zh1uML2n62"), // 1
+    gdrive("18veg3wey5Ju0FVq3BGTO_5tiSAMozCjr"), // 2
+    gdrive("1RTEIphy66FTudZxKjIT9JsubZ0DkLA5z"), // 3
+    gdrive("1SybFRM23GPpRHpycZuUPZochNDyDOEIQ"), // 4
+    gdrive("1MvrI-2T23tSl2286ECeLrS8FNhO_O-Xw"), // 5
+    gdrive("1gYZ56iBiNu8LHEKn9kejtHOsHCKvH8GD"), // 6
+    gdrive("1SJjZniEaW-QOlbsX5ZsxSVTB2dcPe6gl"), // 7
+    gdrive("1LbmwF7zGMmBODymIXTaYGQosES9iV-Rx"), // 8
+    gdrive("1tSGa9uKW4R2PDDpweeP-8l6DJjHm8n5a"), // 9
+    gdrive("1tzxuHUmVyWFWLiDAZKo59Y0n7qXqREYx"), // 10
+    gdrive("16AqZ0oiHAQfFtjgbYE7n04QBSmVlt2wW"), // 11
+    gdrive("1pLlQ_7FbzNaoFh5SjsHQrmAoNH84ekAB"), // 12
+    gdrive("1TnkqHkj_nGkoq9aYFgndvEhLefABLT2_"), // 13
+    gdrive("1H8Ad6NiPUb8RGyncieMNbGbTSqMD9Dxv"), // 14
+    gdrive("1kNgALc57r3IDDPDG712DG2XWfHASvOUh"), // 15
+    gdrive("1M0M2_heQf1pQFCWvtEBABnSQ15cQrE_b"), // 16
+    gdrive("18WwNZ-c-o2CYm9gDQbakq9EIoV9avrW9"), // 17
+    gdrive("1NfA_XtOHU6RELPApXQzi82jiHlGRof-f"), // 18
+    gdrive("1YtjRDfNBLCrqw2tRKdzm5bB3IIuZy_87"), // 19
+    gdrive("1Ji14jyLEno-ECpC_pdG_nhB9uQSP6yKa"), // 20
+    gdrive("1jaMPbZiQ1nyS8ZpKIfeGHz4HzoOGczS1"), // 21
+    gdrive("1LfbvWQalYEz8apkuHXoxSRn7nKmydokM"), // 22
+    gdrive("16dd_gnBredOZel7ywg6CuMKlXILEDVpX"), // 23
+    gdrive("10metE6fqf36CoXGqSZyA1E702C5nbL1_"), // 24
+    gdrive("13RNtwZcmBsoukgArmSrFQDkbLr1JbE25"), // 25
+    gdrive("1Io9ENgXQXWziPviFLYO046kLVq9WCRKw"), // 26
+    gdrive("1WY0ZmwX4bu8Ucns1Nrb1wOo6nzskT7Km"), // 27 เติมพลัง
+    gdrive("1WY0ZmwX4bu8Ucns1Nrb1wOo6nzskT7Km"), // 28 FINISH
+];
+
+const coupons = [
+    { id:1,  code:'GRACZ10',  title:'ลด 10%',         desc:'ส่วนลด 10% สำหรับสินค้า Gracz ทุกชิ้น',      exp:'31 ธ.ค. 2568' },
+    { id:2,  code:'GRACZ20',  title:'ลด 20%',         desc:'ส่วนลด 20% เมื่อซื้อครบ 500 บาท',           exp:'31 ธ.ค. 2568' },
+    { id:3,  code:'BOWL50',   title:'ลด 50 บาท',      desc:'ลดทันที 50 บาท เมื่อซื้อชาม Gracz',          exp:'28 ก.พ. 2569' },
+    { id:4,  code:'GREENFREE',title:'ฟรีค่าส่ง',      desc:'ฟรีค่าจัดส่งทั่วประเทศ ไม่มีขั้นต่ำ',        exp:'28 ก.พ. 2569' },
+    { id:5,  code:'ECO15',    title:'ลด 15%',         desc:'ส่วนลด 15% สำหรับสินค้า Eco Series',         exp:'30 มิ.ย. 2569' },
+    { id:6,  code:'HERO25',   title:'ลด 25%',         desc:'สำหรับ Green Hero ลด 25% ทุกออเดอร์',        exp:'30 มิ.ย. 2569' },
+    { id:7,  code:'CAMP100',  title:'ลด 100 บาท',     desc:'ลด 100 บาท เมื่อซื้อชุด Gracz Camp Set',     exp:'31 มี.ค. 2569' },
+    { id:8,  code:'FRIEND30', title:'แนะนำเพื่อน',    desc:'ลด 30% เมื่อแนะนำเพื่อนมาซื้อ Gracz',        exp:'31 มี.ค. 2569' },
+    { id:9,  code:'NEWBIE',   title:'ลูกค้าใหม่ 40%', desc:'ส่วนลด 40% สำหรับลูกค้าใหม่ครั้งแรก',       exp:'30 เม.ย. 2569' },
+    { id:10, code:'SAVEBOWL', title:'ซื้อ 2 แถม 1',  desc:'ซื้อชาม Gracz 2 ใบ แถมฟรีอีก 1 ใบ',          exp:'30 เม.ย. 2569' },
+    { id:11, code:'STRAW20',  title:'หลอดลด 20%',     desc:'ลด 20% สำหรับหลอดดูด Gracz ทุกแบบ',          exp:'31 พ.ค. 2569' },
+    { id:12, code:'BAG15',    title:'ถุงผ้าลด 15%',   desc:'ลด 15% สำหรับถุงผ้า Gracz Collection',       exp:'31 พ.ค. 2569' },
+    { id:13, code:'SET200',   title:'ลด 200 บาท',     desc:'ลด 200 บาท เมื่อซื้อ Set ครบ 1,000 บาท',    exp:'30 มิ.ย. 2569' },
+    { id:14, code:'BDAY30',   title:'วันเกิดลด 30%',  desc:'ลด 30% ในเดือนวันเกิดของคุณ',                exp:'ตลอดปี 2569' },
+    { id:15, code:'EARTH10',  title:'วันโลก 10%',     desc:'ลด 10% ในวัน Earth Day และทุกวันศุกร์',      exp:'31 ธ.ค. 2568' },
+    { id:16, code:'BULK50',   title:'ซื้อมากลดมาก',   desc:'ซื้อ 5 ชิ้นขึ้นไปลด 50 บาท ทุก 5 ชิ้น',     exp:'28 ก.พ. 2569' },
+    { id:17, code:'APP20',    title:'ลดผ่าน App 20%', desc:'สั่งผ่าน App รับส่วนลดพิเศษ 20% ทันที',      exp:'30 มิ.ย. 2569' },
+    { id:18, code:'FLASH35',  title:'Flash Sale 35%', desc:'Flash Sale พิเศษ ลด 35% เฉพาะวันนี้เท่านั้น', exp:'วันนี้เท่านั้น' },
+    { id:19, code:'VIP40',    title:'VIP ลด 40%',     desc:'สำหรับสมาชิก VIP ลด 40% ทุกออเดอร์',         exp:'ตลอดปี 2569' },
+    { id:20, code:'LUCKY99',  title:'โชคดี ลด 99 บาท',desc:'คูปองโชคดี! ลดทันที 99 บาท ไม่มีขั้นต่ำ',   exp:'31 ธ.ค. 2568' },
+];
+
+const confettiColors = ['#FBC02D','#2D5A27','#0288D1','#D32F2F','#7B1FA2','#E65100','#fff'];
+
+const TreasureBox = ({ winner, onClose }) => {
+    const [phase, setPhase] = useState('bounce');
+    const [coupon, setCoupon] = useState(null);
+    const [confetti, setConfetti] = useState([]);
+    const [copyDone, setCopyDone] = useState(false);
+
+    const handleBoxClick = () => {
+        if (phase !== 'bounce') return;
+        setPhase('shaking');
+        setTimeout(() => {
+            setPhase('opening');
+            const picked = coupons[Math.floor(Math.random() * coupons.length)];
+            setCoupon(picked);
+            setConfetti(Array.from({length:18},(_,i)=>({
+                id:i, left:`${Math.random()*90+5}%`,
+                color: confettiColors[i % confettiColors.length],
+                delay:`${Math.random()*0.5}s`,
+                dur:`${0.8+Math.random()*0.8}s`,
+                size:`${8+Math.random()*10}px`,
+            })));
+            setTimeout(() => setPhase('coupon'), 500);
+        }, 500);
+    };
+
+    const shareText = coupon ? `🎉 ฉันชนะเกม Gracz Replace!\nรับคูปองส่วนลด: ${coupon.title}\nโค้ด: ${coupon.code}\nหมดอายุ: ${coupon.exp}` : '';
+    const shareLine = () => window.open(`https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent(shareText)}`,'_blank');
+    const shareFB   = () => window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.href)}&quote=${encodeURIComponent(shareText)}`,'_blank');
+    const copyLink  = () => { navigator.clipboard.writeText(shareText).then(()=>{ setCopyDone(true); setTimeout(()=>setCopyDone(false),2000); }); };
+
+    return (
+        <div className="fixed inset-0 flex flex-col items-center justify-center z-50 p-6" style={{background:'linear-gradient(135deg,#1a3a14 0%,#2D5A27 100%)'}}>
+            {confetti.map(c=>(
+                <div key={c.id} className="fixed pointer-events-none rounded-sm" style={{
+                    left:c.left, top:'-10px', width:c.size, height:c.size,
+                    background:c.color, animationName:'confettiFall',
+                    animationDuration:c.dur, animationDelay:c.delay,
+                    animationFillMode:'forwards', animationTimingFunction:'linear'
+                }}/>
+            ))}
+            <div className="text-center mb-6">
+                <p className="text-yellow-300 text-sm font-bold tracking-widest uppercase mb-1">🏆 ผู้ชนะ</p>
+                <p className="text-white text-3xl font-black">{winner}</p>
+            </div>
+            {phase !== 'coupon' ? (
+                <div className="flex flex-col items-center">
+                    <div onClick={handleBoxClick} className={`cursor-pointer select-none ${phase==='bounce'?'box-bounce':''} ${phase==='shaking'?'box-shake':''}`}>
+                        <div className="text-center" style={{fontSize:'100px',lineHeight:1,filter:'drop-shadow(0 8px 24px rgba(251,191,36,0.7))'}}>
+                            {phase==='opening'?'📦':'🎁'}
+                        </div>
+                    </div>
+                    <p className="text-yellow-200 font-bold mt-4 text-sm animate-pulse">
+                        {phase==='bounce' ? 'แตะกล่องเพื่อเปิดรางวัล!' : phase==='shaking' ? 'กำลังเปิด...' : '✨'}
+                    </p>
+                </div>
+            ) : (
+                <div className="coupon-slide w-full max-w-xs">
+                    <p className="text-yellow-300 text-center text-xs font-bold uppercase tracking-widest mb-3">🎊 คูปองของคุณ</p>
+                    <div className="coupon-glow bg-white rounded-3xl overflow-hidden">
+                        <div className="bg-[#2D5A27] px-6 py-5 text-center">
+                            <p className="text-green-200 text-xs font-bold uppercase tracking-widest mb-1">Gracz Replace</p>
+                            <p className="text-white text-3xl font-black">{coupon.title}</p>
+                        </div>
+                        <div className="flex items-center px-4 py-2">
+                            <div className="flex-1 border-t-2 border-dashed border-slate-200"/>
+                            <div className="mx-2 text-slate-300 text-xs">✂</div>
+                            <div className="flex-1 border-t-2 border-dashed border-slate-200"/>
+                        </div>
+                        <div className="px-6 pb-5 text-center">
+                            <p className="text-slate-600 text-sm font-bold mb-3 leading-relaxed">{coupon.desc}</p>
+                            <div className="bg-slate-50 border-2 border-dashed border-[#2D5A27] rounded-xl py-2 px-4 mb-2">
+                                <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">โค้ดส่วนลด</p>
+                                <p className="text-[#2D5A27] text-2xl font-black tracking-widest">{coupon.code}</p>
+                            </div>
+                            <p className="text-slate-400 text-[11px] font-bold">หมดอายุ: {coupon.exp}</p>
+                        </div>
+                    </div>
+                    <div className="mt-4 space-y-2">
+                        <p className="text-yellow-200 text-center text-xs font-bold uppercase tracking-widest mb-2">แชร์คูปอง</p>
+                        <div className="flex gap-2">
+                            <button onClick={shareLine} className="flex-1 py-3 rounded-xl font-black text-white text-sm flex items-center justify-center gap-1.5" style={{background:'#06C755'}}>
+                                <span style={{fontSize:'16px'}}>💬</span> LINE
+                            </button>
+                            <button onClick={shareFB} className="flex-1 py-3 rounded-xl font-black text-white text-sm flex items-center justify-center gap-1.5" style={{background:'#1877F2'}}>
+                                <span style={{fontSize:'16px'}}>📘</span> Facebook
+                            </button>
+                            <button onClick={copyLink} className="flex-1 py-3 rounded-xl font-black text-white text-sm flex items-center justify-center gap-1.5" style={{background: copyDone?'#666':'#555'}}>
+                                <span style={{fontSize:'16px'}}>{copyDone?'✅':'🔗'}</span> {copyDone?'แล้ว!':'Copy'}
+                            </button>
+                        </div>
+                        <button onClick={onClose} className="w-full py-3 rounded-xl font-black text-[#2D5A27] bg-white text-sm mt-1">
+                            กลับหน้าหลัก
+                        </button>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
 const playerTokens = [
-    { name: 'ทีมเขียว', color: 'bg-[#2D5A27]', hex: '#2D5A27' },
-    { name: 'ทีมฟ้า',   color: 'bg-[#0288D1]', hex: '#0288D1' },
-    { name: 'ทีมเหลือง',color: 'bg-[#FBC02D]', hex: '#FBC02D' },
-    { name: 'ทีมแดง',   color: 'bg-[#D32F2F]', hex: '#D32F2F' },
+    { name: 'ทีมเขียว',  color: 'bg-[#2D5A27]', hex: '#2D5A27' },
+    { name: 'ทีมฟ้า',    color: 'bg-[#0288D1]', hex: '#0288D1' },
+    { name: 'ทีมเหลือง', color: 'bg-[#FBC02D]', hex: '#FBC02D' },
+    { name: 'ทีมแดง',    color: 'bg-[#D32F2F]', hex: '#D32F2F' },
+    { name: 'ทีมม่วง',   color: 'bg-[#7B1FA2]', hex: '#7B1FA2' },
+    { name: 'ทีมส้ม',    color: 'bg-[#E65100]', hex: '#E65100' },
 ];
 
 // ── Components ──
@@ -161,16 +360,25 @@ const Dice3D = ({ value, rolling }) => {
     );
 };
 
-const TileZoomModal = ({ tile, player, coord, onDone }) => {
+const TileZoomModal = ({ tile, player, coord, tileIdx, onDone }) => {
     const [animClass, setAnimClass] = useState('tile-zoom-enter');
     useEffect(() => {
         const t1 = setTimeout(() => setAnimClass('tile-zoom-exit'), 1700);
-        const t2 = setTimeout(() => onDone(), 2000);
+        const t2 = setTimeout(() => onDone(), 3000);
         return () => { clearTimeout(t1); clearTimeout(t2); };
     }, []);
-    const cropW = 30, cropH = 30;
-    const left = Math.max(0, Math.min(100 - cropW, coord.x - cropW / 2));
-    const top  = Math.max(0, Math.min(100 - cropH, coord.y - cropH / 2));
+    const isFinish = tileIdx === boardTiles.length - 1;
+    const imgSrc = tileImages[tileIdx] || tileImages[0];
+    const sparklePositions = [
+        { top:'-22px', left:'50%', transform:'translateX(-50%)' },
+        { top:'50%',   right:'-22px', transform:'translateY(-50%)' },
+        { bottom:'-22px', left:'50%', transform:'translateX(-50%)' },
+        { top:'50%',   left:'-22px', transform:'translateY(-50%)' },
+        { top:'-16px', left:'-16px' },
+        { top:'-16px', right:'-16px' },
+        { bottom:'-16px', left:'-16px' },
+        { bottom:'-16px', right:'-16px' },
+    ];
     return (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-6">
             <div className={`w-full max-w-xs ${animClass}`}>
@@ -178,8 +386,11 @@ const TileZoomModal = ({ tile, player, coord, onDone }) => {
                     <p className="text-[10px] font-bold uppercase tracking-widest text-green-200">{player.name} เหยียบช่อง</p>
                     <p className="text-lg font-black">{tile.name}</p>
                 </div>
-                <div className="w-full border-x-4 border-[#2D5A27]" style={{ aspectRatio: '1/1', overflow: 'hidden' }}>
-                    <div style={{ width:'100%', height:'100%', backgroundImage:`url(${boardImage})`, backgroundPosition:`${left}% ${top}%`, backgroundSize:`${(100/cropW)*100}% ${(100/cropH)*100}%`, backgroundRepeat:'no-repeat' }} />
+                <div className={`relative w-full border-x-4 border-[#2D5A27] ${isFinish ? 'finish-glow' : ''}`} style={{ aspectRatio: '1/1', overflow: 'visible' }}>
+                    {isFinish && sparklePositions.map((style, i) => (
+                        <span key={i} className="sparkle-star" style={{ ...style, animationDelay:`${i*0.22}s` }}>✨</span>
+                    ))}
+                    <img src={imgSrc} alt={tile.name} className="w-full h-full object-contain bg-white" style={{ display:'block' }} />
                 </div>
                 <div className="bg-white text-center px-4 py-3 rounded-b-2xl border-x-4 border-b-4 border-[#2D5A27]">
                     <p className="text-sm font-bold text-slate-600 leading-snug">{tile.desc}</p>
@@ -191,7 +402,7 @@ const TileZoomModal = ({ tile, player, coord, onDone }) => {
 
 // ── Main App ──
 const App = () => {
-    const [screen, setScreen] = useState('lobby'); // lobby | waiting | game
+    const [screen, setScreen] = useState('lobby');
     const [roomCode, setRoomCode] = useState('');
     const [joinInput, setJoinInput] = useState('');
     const [myIdx, setMyIdx] = useState(0);
@@ -200,10 +411,31 @@ const App = () => {
     const [lastRoll, setLastRoll] = useState(1);
     const [showTileZoom, setShowTileZoom] = useState(null);
     const [showEffectModal, setShowEffectModal] = useState(null);
+    const [showInviteModal, setShowInviteModal] = useState(null); // ── ช่อง 22
     const [copied, setCopied] = useState(false);
     const [playerCount, setPlayerCount] = useState(2);
     const [fbReady, setFbReady] = useState(!!window._firebaseReady);
+    const [isOffline, setIsOffline] = useState(false);
     const unsubRef = useRef(null);
+    const offlineStateRef = useRef(null);
+
+    // ── Offline helpers ──
+    const startOfflineGame = () => {
+        const players = Array.from({ length: playerCount }, (_, i) => ({
+            id: i, name: playerTokens[i].name, pos: 0, skipTurns: 0, color: playerTokens[i].color, hex: playerTokens[i].hex
+        }));
+        const initState = {
+            screen: 'game', players,
+            currentPlayerIdx: 0, lastRoll: 1,
+            logs: ["ยินดีต้อนรับสู่ Gracz! (Offline)"],
+            winner: null, playerCount,
+        };
+        offlineStateRef.current = initState;
+        setIsOffline(true);
+        setMyIdx(0);
+        setGameState(initState);
+        setScreen('game');
+    };
 
     useEffect(() => {
         waitForFirebase(() => setFbReady(true));
@@ -248,7 +480,6 @@ const App = () => {
         const code = joinInput.toUpperCase();
         const data = await dbGet(`rooms/${code}`);
         if (!data) { alert('ไม่พบห้องนี้ครับ'); return; }
-        // หาตำแหน่งว่างถัดไป (ใช้ joinedCount)
         const joined = data.joinedCount || 1;
         if (joined >= data.playerCount) { alert('ห้องเต็มแล้วครับ'); return; }
         await dbUpd(`rooms/${code}`, { joinedCount: joined + 1 });
@@ -266,15 +497,23 @@ const App = () => {
         navigator.clipboard.writeText(roomCode).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
     };
 
-    // ── Game logic — write to Firebase ──
+    // ── Game logic ──
     const gs = gameState;
-    const isMyTurn = gs && gs.currentPlayerIdx === myIdx;
+    const isMyTurn = gs && (isOffline ? true : gs.currentPlayerIdx === myIdx);
 
-    const pushUpdate = (patch) => dbUpd(`rooms/${roomCode}`, patch);
+    const pushUpdate = (patch) => {
+        if (isOffline) {
+            const merged = { ...offlineStateRef.current, ...patch };
+            offlineStateRef.current = merged;
+            setGameState({ ...merged });
+            return Promise.resolve();
+        }
+        return dbUpd(`rooms/${roomCode}`, patch);
+    };
 
-    const handleMove = (playerIdx, steps, isEffect = false) => {
-        if (!gs) return;
-        const newPlayers = gs.players.map((p, i) => {
+    const handleMove = (playerIdx, steps, isEffect = false, currentPlayers = null) => {
+        const basePlayers = currentPlayers || gs.players;
+        const newPlayers = basePlayers.map((p, i) => {
             if (i !== playerIdx) return p;
             let newPos = p.pos + steps;
             if (newPos >= boardTiles.length - 1) newPos = boardTiles.length - 1;
@@ -288,13 +527,26 @@ const App = () => {
                     const tile = boardTiles[pos];
                     const coord = tileCoords[pos];
                     setShowTileZoom({
-                        tile, player: newPlayers[playerIdx], coord,
+                        tile, player: newPlayers[playerIdx], coord, tileIdx: pos,
                         onDone: () => {
                             setShowTileZoom(null);
                             checkTileEffect(playerIdx, newPlayers);
                         }
                     });
                 }, 1300);
+            } else {
+                setTimeout(() => {
+                    const pos = newPlayers[playerIdx].pos;
+                    const tile = boardTiles[pos];
+                    const coord = tileCoords[pos];
+                    setShowTileZoom({
+                        tile, player: newPlayers[playerIdx], coord, tileIdx: pos,
+                        onDone: () => {
+                            setShowTileZoom(null);
+                            moveToNextPlayer(newPlayers);
+                        }
+                    });
+                }, 400);
             }
         });
     };
@@ -303,23 +555,60 @@ const App = () => {
         const pList = players || gs.players;
         const pos = pList[playerIdx].pos;
         const tile = boardTiles[pos];
+
         if (pos === boardTiles.length - 1) {
             pushUpdate({ winner: pList[playerIdx].name });
             return;
         }
+
         if (tile.effect) {
-            setShowEffectModal({
-                player: pList[playerIdx], tile,
-                onClose: () => {
-                    setShowEffectModal(null);
-                    if (tile.effect.move) handleMove(playerIdx, tile.effect.move, true);
-                    if (tile.effect.skip) {
+            // ── ช่อง 22: ชวนเพื่อน ──
+            if (tile.effect.invite) {
+                // ย้ายตัวเองไป +1 ก่อน
+                const selfMoved = pList.map((p, i) => {
+                    if (i !== playerIdx) return p;
+                    return { ...p, pos: Math.min(p.pos + 1, boardTiles.length - 1) };
+                });
+                pushUpdate({ players: selfMoved }).then(() => {
+                    setShowInviteModal({
+                        playerIdx,
+                        players: selfMoved,
+                        onSelect: (friendIdx) => {
+                            setShowInviteModal(null);
+                            // ขยับเพื่อนที่ถูกเลือก +1
+                            const friendMoved = selfMoved.map((p, i) => {
+                                if (i !== friendIdx) return p;
+                                return { ...p, pos: Math.min(p.pos + 1, boardTiles.length - 1) };
+                            });
+                            pushUpdate({ players: friendMoved }).then(() => {
+                                moveToNextPlayer(friendMoved);
+                            });
+                        }
+                    });
+                });
+            // ── เดิน/ถอย ──
+            } else if (tile.effect.move) {
+                setShowEffectModal({
+                    player: pList[playerIdx], tile,
+                    onClose: () => {
+                        setShowEffectModal(null);
+                        handleMove(playerIdx, tile.effect.move, true, pList);
+                    }
+                });
+            // ── หยุดตา ──
+            } else if (tile.effect.skip) {
+                setShowEffectModal({
+                    player: pList[playerIdx], tile,
+                    onClose: () => {
+                        setShowEffectModal(null);
                         const np = pList.map((p, i) => i === playerIdx ? { ...p, skipTurns: tile.effect.skip } : p);
                         pushUpdate({ players: np });
+                        moveToNextPlayer(np);
                     }
-                    moveToNextPlayer(pList);
-                }
-            });
+                });
+            } else {
+                moveToNextPlayer(pList);
+            }
         } else {
             moveToNextPlayer(pList);
         }
@@ -339,15 +628,16 @@ const App = () => {
     };
 
     const rollDice = () => {
-        if (!isMyTurn || isRolling || showEffectModal || showTileZoom || gs?.winner) return;
+        if (!isMyTurn || isRolling || showEffectModal || showTileZoom || showInviteModal || gs?.winner) return;
+        const activeIdx = isOffline ? gs.currentPlayerIdx : myIdx;
         setIsRolling(true);
         const dice = Math.floor(Math.random() * 6) + 1;
         setTimeout(() => {
             setLastRoll(dice);
             setIsRolling(false);
-            const newLogs = [`${gs.players[myIdx].name} ทอยได้ ${dice}`, ...(gs.logs || [])].slice(0, 5);
+            const newLogs = [`${gs.players[activeIdx].name} ทอยได้ ${dice}`, ...(gs.logs || [])].slice(0, 5);
             pushUpdate({ lastRoll: dice, logs: newLogs });
-            handleMove(myIdx, dice);
+            handleMove(activeIdx, dice);
         }, 1000);
     };
 
@@ -360,28 +650,40 @@ const App = () => {
 
     // LOBBY
     if (screen === 'lobby') return (
-        <div className="min-h-full flex items-center justify-center p-6 bg-[#f0f4f0]">
-            <div className="bg-white p-8 rounded-[2.5rem] shadow-xl w-full max-w-sm text-center">
-                <Icon name="leaf" size={64} className="text-[#2D5A27] mx-auto mb-2" />
-                <h1 className="text-3xl font-black text-[#2D5A27] mb-1">GRACZ REPLACE</h1>
-                <div className="flex items-center justify-center gap-1 mb-6 text-green-600 text-xs font-bold">
-                    <Icon name="wifi" size={14} /> Online Multiplayer
-                </div>
-
-                {/* Create room */}
+        <div className="min-h-full flex items-center justify-center p-6" style={{ background: '#2D5A27' }}>
+            <div className="bg-white rounded-[2.5rem] shadow-xl w-full max-w-sm text-center overflow-hidden">
+                <img
+                    src="https://drive.google.com/thumbnail?id=1PZ6akJuBT0L75oV5CNyxz7nSDRIq8Idt&sz=w800"
+                    alt="Gracz Replace Logo"
+                    className="w-full"
+                    style={{ display: 'block' }}
+                />
+                <div className="p-8 pt-6">
                 <div className="bg-slate-50 p-5 rounded-2xl mb-4">
                     <p className="text-xs font-bold text-slate-400 mb-3 uppercase">สร้างห้องใหม่</p>
-                    <div className="flex justify-center gap-2 mb-3">
-                        {[2,3,4].map(n => (
-                            <button key={n} onClick={() => setPlayerCount(n)} className={`w-11 h-11 rounded-xl font-bold text-sm transition-all ${playerCount===n?'bg-[#2D5A27] text-white':'bg-white text-slate-400 border'}`}>{n}</button>
+                    <div className="flex justify-center gap-2 mb-3 flex-wrap">
+                        {[2,3,4,5,6].map(n => (
+                            <button key={n} onClick={() => setPlayerCount(n)}
+                                className={`w-11 h-11 rounded-xl font-bold text-sm transition-all ${playerCount===n?'bg-[#2D5A27] text-white':'bg-white text-slate-400 border'}`}>
+                                {n}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="flex justify-center gap-1.5 mb-3">
+                        {Array.from({ length: playerCount }, (_, i) => (
+                            <div key={i} className="flex flex-col items-center gap-1">
+                                <div className="w-5 h-5 rounded-full border-2 border-white shadow" style={{ background: playerTokens[i].hex }} />
+                                <span className="text-[8px] text-slate-400 font-bold">{playerTokens[i].name.replace('ทีม','')}</span>
+                            </div>
                         ))}
                     </div>
                     <button onClick={createRoom} className="w-full bg-[#2D5A27] text-white py-3 rounded-xl font-black text-base shadow">
                         สร้างห้อง ({playerCount} คน)
                     </button>
+                    <button onClick={startOfflineGame} className="w-full mt-2 bg-amber-500 text-white py-3 rounded-xl font-black text-base shadow flex items-center justify-center gap-2">
+                        <span>📵</span> เล่น Offline ({playerCount} คน)
+                    </button>
                 </div>
-
-                {/* Join room */}
                 <div className="bg-slate-50 p-5 rounded-2xl">
                     <p className="text-xs font-bold text-slate-400 mb-3 uppercase">เข้าร่วมห้อง</p>
                     <input
@@ -394,6 +696,7 @@ const App = () => {
                         เข้าห้อง
                     </button>
                 </div>
+                </div>
             </div>
         </div>
     );
@@ -405,8 +708,6 @@ const App = () => {
                 <Icon name="wifi" size={48} className="text-[#2D5A27] mx-auto mb-4" />
                 <h2 className="text-2xl font-black text-[#2D5A27] mb-2">รอผู้เล่น...</h2>
                 <p className="text-slate-400 text-sm mb-6">แชร์ Room Code ให้เพื่อนครับ</p>
-
-                {/* Room Code */}
                 <div className="bg-[#2D5A27] rounded-2xl p-4 mb-6">
                     <p className="text-green-300 text-xs font-bold mb-1">ROOM CODE</p>
                     <p className="text-white text-4xl font-black tracking-[0.3em]">{roomCode}</p>
@@ -414,8 +715,6 @@ const App = () => {
                         <Icon name="copy" size={12} /> {copied ? 'คัดลอกแล้ว!' : 'คัดลอก'}
                     </button>
                 </div>
-
-                {/* Players joined */}
                 <div className="space-y-2 mb-6">
                     {Array.from({ length: gs?.playerCount || playerCount }, (_, i) => (
                         <div key={i} className="flex items-center gap-3 px-4 py-2 rounded-xl bg-slate-50">
@@ -427,7 +726,6 @@ const App = () => {
                         </div>
                     ))}
                 </div>
-
                 {myIdx === 0 ? (
                     <button onClick={startGame}
                         disabled={(gs?.joinedCount || 1) < (gs?.playerCount || playerCount)}
@@ -443,13 +741,7 @@ const App = () => {
 
     // GAME OVER
     if (gs?.winner) return (
-        <div className="min-h-full bg-[#2D5A27] flex flex-col items-center justify-center p-6 text-white text-center">
-            <Icon name="trophy" size={100} className="text-yellow-400 mb-6" />
-            <h1 className="text-4xl font-black mb-2 uppercase">ยินดีด้วย!</h1>
-            <p className="text-xl mb-8">{gs.winner} ชนะแล้ว!</p>
-            <button onClick={() => { setScreen('lobby'); setRoomCode(''); setGameState(null); }}
-                className="bg-white text-[#2D5A27] px-8 py-3 rounded-full font-black">กลับหน้าหลัก</button>
-        </div>
+        <TreasureBox winner={gs.winner} onClose={() => { setScreen('lobby'); setRoomCode(''); setGameState(null); setIsOffline(false); offlineStateRef.current = null; }} />
     );
 
     // GAME
@@ -479,7 +771,12 @@ const App = () => {
                     <div className="absolute inset-0">
                         {players.map((p, i) => {
                             const coords = tileCoords[p.pos] || { x: 0, y: 0 };
-                            const offset = { x: (i%2===0?-1:1), y: (i<2?-1:1) };
+                            const offsets = [
+                                { x: -1.5, y: -1.5 }, { x:  1.5, y: -1.5 },
+                                { x: -1.5, y:  1.5 }, { x:  1.5, y:  1.5 },
+                                { x:  0,   y: -3   }, { x:  0,   y:  3   },
+                            ];
+                            const offset = offsets[i] || { x: 0, y: 0 };
                             return (
                                 <div key={i} className="absolute w-[4.5%] aspect-square rounded-full border-2 border-white shadow-lg transition-all duration-700 z-20 flex items-center justify-center text-[8px] text-white font-black"
                                     style={{ left:`${coords.x+offset.x}%`, top:`${coords.y+offset.y}%`, transform:'translate(-50%,-50%)', background: p.hex }}>
@@ -502,11 +799,11 @@ const App = () => {
 
                     <div className="w-full space-y-3">
                         <button onClick={rollDice}
-                            disabled={!isMyTurn || isRolling || !!showEffectModal || !!showTileZoom}
+                            disabled={!isMyTurn || isRolling || !!showEffectModal || !!showTileZoom || !!showInviteModal}
                             className={`w-full py-5 rounded-2xl font-black text-xl text-white shadow-xl active:scale-95 transition-all ${
                                 !isMyTurn ? 'bg-slate-300' : isRolling ? 'bg-slate-300' : 'bg-[#2D5A27]'
                             }`}>
-                            {isRolling ? 'กำลังทอย...' : isMyTurn ? 'ทอยลูกเต๋า' : `รอ ${currentPlayer.name}...`}
+                            {isRolling ? 'กำลังทอย...' : isOffline ? `ทอยลูกเต๋า (${currentPlayer.name})` : isMyTurn ? 'ทอยลูกเต๋า' : `รอ ${currentPlayer.name}...`}
                         </button>
 
                         <div className="log-container p-4 rounded-2xl text-white min-h-[80px]">
@@ -520,10 +817,12 @@ const App = () => {
                     </div>
                 </div>
 
+                {/* TileZoom Modal */}
                 {showTileZoom && (
-                    <TileZoomModal tile={showTileZoom.tile} player={showTileZoom.player} coord={showTileZoom.coord} onDone={showTileZoom.onDone} />
+                    <TileZoomModal tile={showTileZoom.tile} player={showTileZoom.player} coord={showTileZoom.coord} tileIdx={showTileZoom.tileIdx} onDone={showTileZoom.onDone} />
                 )}
 
+                {/* Effect Modal (move / skip) */}
                 {showEffectModal && (
                     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-6">
                         <div className="bg-white rounded-[2.5rem] p-8 w-full max-w-xs text-center border-t-[12px] border-[#2D5A27]">
@@ -532,6 +831,33 @@ const App = () => {
                             <button onClick={showEffectModal.onClose}
                                 className="w-full py-4 rounded-xl font-black text-white"
                                 style={{ background: showEffectModal.player.hex }}>ตกลง</button>
+                        </div>
+                    </div>
+                )}
+
+                {/* Invite Modal – ช่อง 22 ชวนเพื่อนใช้เกรซ */}
+                {showInviteModal && (
+                    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-6">
+                        <div className="bg-white rounded-[2.5rem] p-8 w-full max-w-xs text-center border-t-[12px] border-[#2D5A27]">
+                            <p className="text-3xl mb-2">🤝</p>
+                            <h2 className="text-lg font-black text-slate-800 mb-1">ชวนเพื่อนใช้เกรซ</h2>
+                            <p className="text-sm text-slate-500 mb-5 font-bold leading-relaxed">
+                                เลือก 1 คน เดินหน้าพร้อมคุณ 1 ช่อง
+                            </p>
+                            <div className="space-y-2">
+                                {showInviteModal.players.map((p, i) => {
+                                    if (i === showInviteModal.playerIdx) return null;
+                                    return (
+                                        <button key={i} onClick={() => showInviteModal.onSelect(i)}
+                                            className="w-full py-3 rounded-xl font-black text-white flex items-center justify-center gap-3 text-sm active:scale-95 transition-all"
+                                            style={{ background: p.hex }}>
+                                            <span className="w-6 h-6 rounded-full bg-white/30 flex items-center justify-center text-xs font-black">{i+1}</span>
+                                            {p.name}
+                                            <span className="text-white/70 text-xs font-bold">(ช่องที่ {p.pos})</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
                         </div>
                     </div>
                 )}
