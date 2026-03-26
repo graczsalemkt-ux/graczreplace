@@ -242,7 +242,7 @@ const TreasureBox = ({ winner, onClose }) => {
         }, 500);
     };
 
-    const shareText = coupon ? `🎮 มาเล่นเกม Gracz Replace กันเถอะ!\nเล่นสนุก ลุ้นของรางวัลสุดพิเศษกันได้เลย 🎁\nคลิกเล่นได้เลย: ${window.location.href}` : '';
+    const shareText = coupon ? `🎉 ฉันชนะเกม Gracz Replace!\nรับคูปองส่วนลด: ${coupon.title}\nโค้ด: ${coupon.code}\nหมดอายุ: ${coupon.exp}` : '';
     const shareLine = () => window.open(`https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent(shareText)}`,'_blank');
     const shareFB   = () => window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.href)}&quote=${encodeURIComponent(shareText)}`,'_blank');
     const copyLink  = () => { navigator.clipboard.writeText(shareText).then(()=>{ setCopyDone(true); setTimeout(()=>setCopyDone(false),2000); }); };
@@ -295,11 +295,7 @@ const TreasureBox = ({ winner, onClose }) => {
                         </div>
                     </div>
                     <div className="mt-4 space-y-2">
-                        {/* แจ้งเตือนแคปหน้าจอ */}
-                        <div className="bg-yellow-400 rounded-2xl px-4 py-3 text-center mb-1">
-                            <p className="text-[#1a3a14] text-xs font-black leading-relaxed">📸 แคปหน้าจอส่งไลน์มาที่ <span className="underline">@gracz</span> เพื่อรับของรางวัลเลย!</p>
-                        </div>
-                        <p className="text-yellow-200 text-center text-xs font-bold uppercase tracking-widest mb-2">ชวนเพื่อนมาเล่น</p>
+                        <p className="text-yellow-200 text-center text-xs font-bold uppercase tracking-widest mb-2">แชร์คูปอง</p>
                         <div className="flex gap-2">
                             <button onClick={shareLine} className="flex-1 py-3 rounded-xl font-black text-white text-sm flex items-center justify-center gap-1.5" style={{background:'#06C755'}}>
                                 <span style={{fontSize:'16px'}}>💬</span> LINE
@@ -755,38 +751,27 @@ const App = () => {
         );
 
         // ── หน้าแพ้ ──
-        const loserShareText = `🎮 มาเล่นเกม Gracz Replace กันเถอะ!\nเล่นสนุก ลุ้นของรางวัลสุดพิเศษกันได้เลย 🎁\nคลิกเล่นได้เลย: ${window.location.href}`;
-        const loserShareLine = () => window.open(`https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent(loserShareText)}`,'_blank');
-        const loserShareFB   = () => window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.href)}&quote=${encodeURIComponent(loserShareText)}`,'_blank');
+        const loserMessages = [
+            { emoji: '🌱', msg: 'ยังไม่ถึงเส้นชัยคราวนี้... แต่ผู้พิทักษ์โลกไม่เคยหยุดพัก!' },
+            { emoji: '♻️', msg: 'รีไซเคิลความพยายาม แล้วมาลุยใหม่อีกรอบ!' },
+            { emoji: '🌍', msg: 'โลกยังต้องการคุณอยู่ ลองใหม่อีกครั้งนะ!' },
+            { emoji: '💪', msg: 'แพ้ครั้งนี้เพื่อชนะครั้งหน้า สู้ต่อไปนะ!' },
+        ];
+        const picked = loserMessages[myIdx % loserMessages.length];
 
         return (
-            <div className="fixed inset-0 flex flex-col items-center justify-center z-50 p-6 overflow-y-auto"
+            <div className="fixed inset-0 flex flex-col items-center justify-center z-50 p-6"
                 style={{background:'linear-gradient(135deg,#1a3a14 0%,#2D5A27 100%)'}}>
-                <div className="text-center w-full max-w-xs mx-auto">
-                    <p className="text-6xl mb-3">😢</p>
-                    <p className="text-yellow-300 text-sm font-bold tracking-widest uppercase mb-1">ผู้ชนะคือ</p>
-                    <p className="text-white text-2xl font-black mb-4">🏆 {gs.winner}</p>
-
-                    {/* ข้อความแพ้ */}
-                    <div className="bg-white/10 rounded-3xl p-5 mb-5">
-                        <p className="text-white text-base font-black leading-relaxed mb-1">เสียใจด้วยนะ 😔</p>
-                        <p className="text-green-200 text-sm font-bold leading-relaxed">คุณฝีมือยังไม่ถึงในครั้งนี้...</p>
-                    </div>
-
-                    {/* ชวนเพื่อน */}
-                    <div className="bg-yellow-400 rounded-2xl px-4 py-3 text-center mb-4">
-                        <p className="text-[#1a3a14] text-xs font-black leading-relaxed">🎮 ชวนเพื่อนมาเล่นด้วยกัน รับของรางวัลสุดพิเศษ!</p>
-                    </div>
-                    <div className="flex gap-2 mb-3">
-                        <button onClick={loserShareLine} className="flex-1 py-3 rounded-xl font-black text-white text-sm flex items-center justify-center gap-1.5" style={{background:'#06C755'}}>
-                            <span style={{fontSize:'16px'}}>💬</span> LINE
-                        </button>
-                        <button onClick={loserShareFB} className="flex-1 py-3 rounded-xl font-black text-white text-sm flex items-center justify-center gap-1.5" style={{background:'#1877F2'}}>
-                            <span style={{fontSize:'16px'}}>📘</span> Facebook
-                        </button>
+                <div className="text-center mb-8">
+                    <p className="text-6xl mb-4">{picked.emoji}</p>
+                    <p className="text-yellow-300 text-sm font-bold tracking-widest uppercase mb-2">ผู้ชนะคือ</p>
+                    <p className="text-white text-2xl font-black mb-6">🏆 {gs.winner}</p>
+                    <div className="bg-white/10 rounded-3xl p-6 max-w-xs mx-auto mb-8">
+                        <p className="text-white text-base font-black leading-relaxed">{picked.msg}</p>
+                        <p className="text-green-300 text-sm font-bold mt-3">ชวนเพื่อนเล่นใหม่อีกครั้งนะ! 🎲</p>
                     </div>
                     <button onClick={onBackToLobby}
-                        className="w-full py-4 rounded-2xl font-black text-[#2D5A27] bg-white text-lg shadow-xl active:scale-95 transition-all">
+                        className="w-full max-w-xs py-4 rounded-2xl font-black text-[#2D5A27] bg-white text-lg shadow-xl active:scale-95 transition-all">
                         กลับหน้าหลัก
                     </button>
                 </div>
