@@ -363,7 +363,7 @@ const Dice3D = ({ value, rolling }) => {
 const TileZoomModal = ({ tile, player, coord, tileIdx, onDone }) => {
     const [animClass, setAnimClass] = useState('tile-zoom-enter');
     useEffect(() => {
-        const t1 = setTimeout(() => setAnimClass('tile-zoom-exit'), 2700);
+        const t1 = setTimeout(() => setAnimClass('tile-zoom-exit'), 1700);
         const t2 = setTimeout(() => onDone(), 3000);
         return () => { clearTimeout(t1); clearTimeout(t2); };
     }, []);
@@ -740,44 +740,9 @@ const App = () => {
     );
 
     // GAME OVER
-    const onBackToLobby = () => { setScreen('lobby'); setRoomCode(''); setGameState(null); setIsOffline(false); offlineStateRef.current = null; };
-    if (gs?.winner) {
-        const iAmWinner = isOffline
-            ? true // offline ทุกคนเห็น TreasureBox
-            : gs.players?.[myIdx]?.name === gs.winner;
-
-        if (iAmWinner) return (
-            <TreasureBox winner={gs.winner} onClose={onBackToLobby} />
-        );
-
-        // ── หน้าแพ้ ──
-        const loserMessages = [
-            { emoji: '🌱', msg: 'ยังไม่ถึงเส้นชัยคราวนี้... แต่ผู้พิทักษ์โลกไม่เคยหยุดพัก!' },
-            { emoji: '♻️', msg: 'รีไซเคิลความพยายาม แล้วมาลุยใหม่อีกรอบ!' },
-            { emoji: '🌍', msg: 'โลกยังต้องการคุณอยู่ ลองใหม่อีกครั้งนะ!' },
-            { emoji: '💪', msg: 'แพ้ครั้งนี้เพื่อชนะครั้งหน้า สู้ต่อไปนะ!' },
-        ];
-        const picked = loserMessages[myIdx % loserMessages.length];
-
-        return (
-            <div className="fixed inset-0 flex flex-col items-center justify-center z-50 p-6"
-                style={{background:'linear-gradient(135deg,#1a3a14 0%,#2D5A27 100%)'}}>
-                <div className="text-center mb-8">
-                    <p className="text-6xl mb-4">{picked.emoji}</p>
-                    <p className="text-yellow-300 text-sm font-bold tracking-widest uppercase mb-2">ผู้ชนะคือ</p>
-                    <p className="text-white text-2xl font-black mb-6">🏆 {gs.winner}</p>
-                    <div className="bg-white/10 rounded-3xl p-6 max-w-xs mx-auto mb-8">
-                        <p className="text-white text-base font-black leading-relaxed">{picked.msg}</p>
-                        <p className="text-green-300 text-sm font-bold mt-3">ชวนเพื่อนเล่นใหม่อีกครั้งนะ! 🎲</p>
-                    </div>
-                    <button onClick={onBackToLobby}
-                        className="w-full max-w-xs py-4 rounded-2xl font-black text-[#2D5A27] bg-white text-lg shadow-xl active:scale-95 transition-all">
-                        กลับหน้าหลัก
-                    </button>
-                </div>
-            </div>
-        );
-    }
+    if (gs?.winner) return (
+        <TreasureBox winner={gs.winner} onClose={() => { setScreen('lobby'); setRoomCode(''); setGameState(null); setIsOffline(false); offlineStateRef.current = null; }} />
+    );
 
     // GAME
     if (screen === 'game' && gs) {
