@@ -10,7 +10,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-        import { getDatabase, ref, set, onValue, update, get } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+        import { getDatabase, ref, set, onValue, update, get, runTransaction } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyCzvDunr2Fc6wFWud663I7gIyQD5mpImak",
@@ -30,6 +30,7 @@
         window._firebaseOnValue = onValue;
         window._firebaseUpdate = update;
         window._firebaseGet = get;
+        window._firebaseRunTransaction = runTransaction;
         window._firebaseReady = true;
         window.dispatchEvent(new Event('firebaseReady'));
     </script>
@@ -74,14 +75,16 @@
         .lid-open   { animation: lidOpen 0.4s ease-out forwards; }
         .coupon-slide { animation: couponSlideUp 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards; }
         .coupon-glow  { animation: glowPulse 1.5s ease-in-out infinite; }
+        @keyframes shimmer { 0%{background-position:-200% center;} 100%{background-position:200% center;} }
+        .shimmer-text { background: linear-gradient(90deg, #fbbf24, #fff, #fbbf24); background-size: 200% auto; -webkit-background-clip: text; -webkit-text-fill-color: transparent; animation: shimmer 2s linear infinite; }
     </style>
 </head>
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const { useState, useEffect, useRef } = React;
+const { useState, useEffect, useRef, useCallback } = React;
 
-// ── Firebase helpers (loaded via module) ──
+// ── Firebase helpers ──
 const waitForFirebase = (cb) => {
     if (window._firebaseReady) cb();
     else window.addEventListener('firebaseReady', cb, { once: true });
@@ -91,42 +94,152 @@ const dbSet  = (path, val) => window._firebaseSet(dbRef(path), val);
 const dbUpd  = (path, val) => window._firebaseUpdate(dbRef(path), val);
 const dbOn   = (path, cb) => window._firebaseOnValue(dbRef(path), snap => cb(snap.val()));
 const dbGet  = (path) => window._firebaseGet(dbRef(path)).then(s => s.val());
+const dbTx   = (path, fn) => window._firebaseRunTransaction(dbRef(path), fn);
 
 // ── Helpers ──
 const randomCode = () => Math.random().toString(36).substring(2,7).toUpperCase();
 
 const boardImage = "https://drive.google.com/thumbnail?id=1EXJvk5D8BOsVBST-_gYM-yaQgMjFotEQ&sz=w1600";
 
+// ── Shop Coupon System ──
+// Code pools สมมุติ (เปลี่ยนเป็น Code จริงทีหลัง)
+const generateCodes = (prefix, count) =>
+    Array.from({length: count}, (_, i) => `${prefix}${String(i+1).padStart(4,'0')}`);
+
+const SHOPS = [
+    {
+        id: 'sukthukkham',
+        name: 'สุขทุกคำ',
+        emoji: '🍜',
+        color: '#E65100',
+        bgColor: '#FFF3E0',
+        type: 'percent',
+        discount: '10%',
+        desc: 'ส่วนลด 10% สำหรับเมนูทุกอย่าง',
+        totalStock: 1000,
+        codes: null, // ใช้ type percent ไม่มี code pool
+    },
+    {
+        id: 'doitung',
+        name: 'ดอยตุง',
+        emoji: '☕',
+        color: '#4E342E',
+        bgColor: '#EFEBE9',
+        type: 'percent',
+        discount: '10%',
+        desc: 'ส่วนลด 10% สินค้าดอยตุงทุกชิ้น',
+        totalStock: 500,
+        codes: null,
+    },
+    {
+        id: 'shopee',
+        name: 'Shopee',
+        emoji: '🛍️',
+        color: '#EE4D2D',
+        bgColor: '#FFF0ED',
+        type: 'code',
+        discount: 'Code ส่วนลด',
+        desc: 'Code ส่วนลดพิเศษจาก Shopee',
+        totalStock: 1000,
+        codes: generateCodes('SHOP', 1000),
+    },
+    {
+        id: 'lazada',
+        name: 'Lazada',
+        emoji: '📦',
+        color: '#0F146D',
+        bgColor: '#E8EAF6',
+        type: 'code',
+        discount: 'Code ส่วนลด',
+        desc: 'Code ส่วนลดพิเศษจาก Lazada',
+        totalStock: 1000,
+        codes: generateCodes('LAZA', 1000),
+    },
+    {
+        id: 'lineoa',
+        name: 'Line OA',
+        emoji: '💬',
+        color: '#06C755',
+        bgColor: '#E8F5E9',
+        type: 'code',
+        discount: 'Code ส่วนลด',
+        desc: 'Code ส่วนลดพิเศษจาก Line OA',
+        totalStock: 1000,
+        codes: generateCodes('LINE', 1000),
+    },
+];
+
+// Init stock ใน Firebase ถ้ายังไม่มี
+const initShopStock = async () => {
+    const existing = await dbGet('shopStock');
+    if (existing) return;
+    const stockData = {};
+    SHOPS.forEach(shop => {
+        stockData[shop.id] = {
+            name: shop.name,
+            totalStock: shop.totalStock,
+            remaining: shop.totalStock,
+            issued: 0,
+            // สำหรับ code pool เก็บ index ล่าสุดที่ใช้ไป
+            codeIndex: shop.type === 'code' ? 0 : null,
+        };
+    });
+    await dbSet('shopStock', stockData);
+};
+
+// ดึงและตัด coupon 1 ใบ (transaction-safe)
+const claimCoupon = async () => {
+    const stock = await dbGet('shopStock');
+    if (!stock) return null;
+
+    // หาร้านที่ยังมี stock
+    const available = SHOPS.filter(s => stock[s.id] && stock[s.id].remaining > 0);
+    if (available.length === 0) return null;
+
+    // Random ร้าน
+    const shop = available[Math.floor(Math.random() * available.length)];
+    const shopStock = stock[shop.id];
+
+    let couponCode = null;
+    if (shop.type === 'code') {
+        const idx = shopStock.codeIndex || 0;
+        couponCode = shop.codes[idx];
+        await dbUpd(`shopStock/${shop.id}`, {
+            remaining: shopStock.remaining - 1,
+            issued: shopStock.issued + 1,
+            codeIndex: idx + 1,
+            lastIssuedAt: new Date().toISOString(),
+        });
+    } else {
+        couponCode = null;
+        await dbUpd(`shopStock/${shop.id}`, {
+            remaining: shopStock.remaining - 1,
+            issued: shopStock.issued + 1,
+            lastIssuedAt: new Date().toISOString(),
+        });
+    }
+
+    // บันทึก log การออกคูปอง
+    const logKey = `couponLogs/${Date.now()}`;
+    await dbSet(logKey, {
+        shopId: shop.id,
+        shopName: shop.name,
+        code: couponCode,
+        issuedAt: new Date().toISOString(),
+    });
+
+    return { shop, couponCode };
+};
+
 const tileCoords = [
-    { x: 11, y: 89 }, // 0  START
-    { x: 11, y: 78 }, // 1
-    { x: 11, y: 67 }, // 2
-    { x: 11, y: 56 }, // 3
-    { x: 11, y: 45 }, // 4
-    { x: 11, y: 34 }, // 5
-    { x: 11, y: 23 }, // 6
-    { x: 11, y: 12 }, // 7  มุมซ้ายบน
-    { x: 22, y: 12 }, // 8
-    { x: 33, y: 12 }, // 9
-    { x: 44, y: 12 }, // 10
-    { x: 55, y: 12 }, // 11
-    { x: 66, y: 12 }, // 12
-    { x: 77, y: 12 }, // 13
-    { x: 89, y: 12 }, // 14 มุมขวาบน
-    { x: 89, y: 23 }, // 15
-    { x: 89, y: 34 }, // 16
-    { x: 89, y: 45 }, // 17
-    { x: 89, y: 56 }, // 18
-    { x: 89, y: 67 }, // 19
-    { x: 89, y: 78 }, // 20
-    { x: 89, y: 89 }, // 21 มุมขวาล่าง
-    { x: 78, y: 89 }, // 22
-    { x: 67, y: 89 }, // 23
-    { x: 56, y: 89 }, // 24
-    { x: 45, y: 89 }, // 25
-    { x: 34, y: 89 }, // 26
-    { x: 20, y: 89 }, // 27 เติมพลัง
-    { x: 11, y: 89 }, // 28 FINISH
+    { x: 11, y: 89 }, { x: 11, y: 78 }, { x: 11, y: 67 }, { x: 11, y: 56 },
+    { x: 11, y: 45 }, { x: 11, y: 34 }, { x: 11, y: 23 }, { x: 11, y: 12 },
+    { x: 22, y: 12 }, { x: 33, y: 12 }, { x: 44, y: 12 }, { x: 55, y: 12 },
+    { x: 66, y: 12 }, { x: 77, y: 12 }, { x: 89, y: 12 }, { x: 89, y: 23 },
+    { x: 89, y: 34 }, { x: 89, y: 45 }, { x: 89, y: 56 }, { x: 89, y: 67 },
+    { x: 89, y: 78 }, { x: 89, y: 89 }, { x: 78, y: 89 }, { x: 67, y: 89 },
+    { x: 56, y: 89 }, { x: 45, y: 89 }, { x: 34, y: 89 }, { x: 20, y: 89 },
+    { x: 11, y: 89 },
 ];
 
 const boardTiles = [
@@ -162,93 +275,246 @@ const boardTiles = [
 
 const gdrive = (id) => `https://drive.google.com/thumbnail?id=${id}&sz=w600`;
 const tileImages = [
-    gdrive("1iv5VkVKf11cjOKExPfk546_2JdWhK_NH"), // 0 START
-    gdrive("1tpcdb0UE_Y9anBZnzlW8S5zh1uML2n62"), // 1
-    gdrive("18veg3wey5Ju0FVq3BGTO_5tiSAMozCjr"), // 2
-    gdrive("1RTEIphy66FTudZxKjIT9JsubZ0DkLA5z"), // 3
-    gdrive("1SybFRM23GPpRHpycZuUPZochNDyDOEIQ"), // 4
-    gdrive("1MvrI-2T23tSl2286ECeLrS8FNhO_O-Xw"), // 5
-    gdrive("1gYZ56iBiNu8LHEKn9kejtHOsHCKvH8GD"), // 6
-    gdrive("1SJjZniEaW-QOlbsX5ZsxSVTB2dcPe6gl"), // 7
-    gdrive("1LbmwF7zGMmBODymIXTaYGQosES9iV-Rx"), // 8
-    gdrive("1tSGa9uKW4R2PDDpweeP-8l6DJjHm8n5a"), // 9
-    gdrive("1tzxuHUmVyWFWLiDAZKo59Y0n7qXqREYx"), // 10
-    gdrive("16AqZ0oiHAQfFtjgbYE7n04QBSmVlt2wW"), // 11
-    gdrive("1pLlQ_7FbzNaoFh5SjsHQrmAoNH84ekAB"), // 12
-    gdrive("1TnkqHkj_nGkoq9aYFgndvEhLefABLT2_"), // 13
-    gdrive("1H8Ad6NiPUb8RGyncieMNbGbTSqMD9Dxv"), // 14
-    gdrive("1kNgALc57r3IDDPDG712DG2XWfHASvOUh"), // 15
-    gdrive("1M0M2_heQf1pQFCWvtEBABnSQ15cQrE_b"), // 16
-    gdrive("18WwNZ-c-o2CYm9gDQbakq9EIoV9avrW9"), // 17
-    gdrive("1NfA_XtOHU6RELPApXQzi82jiHlGRof-f"), // 18
-    gdrive("1YtjRDfNBLCrqw2tRKdzm5bB3IIuZy_87"), // 19
-    gdrive("1Ji14jyLEno-ECpC_pdG_nhB9uQSP6yKa"), // 20
-    gdrive("1jaMPbZiQ1nyS8ZpKIfeGHz4HzoOGczS1"), // 21
-    gdrive("1LfbvWQalYEz8apkuHXoxSRn7nKmydokM"), // 22
-    gdrive("16dd_gnBredOZel7ywg6CuMKlXILEDVpX"), // 23
-    gdrive("10metE6fqf36CoXGqSZyA1E702C5nbL1_"), // 24
-    gdrive("13RNtwZcmBsoukgArmSrFQDkbLr1JbE25"), // 25
-    gdrive("1Io9ENgXQXWziPviFLYO046kLVq9WCRKw"), // 26
-    gdrive("1WY0ZmwX4bu8Ucns1Nrb1wOo6nzskT7Km"), // 27 เติมพลัง
-    gdrive("1WY0ZmwX4bu8Ucns1Nrb1wOo6nzskT7Km"), // 28 FINISH
-];
-
-const coupons = [
-    { id:1,  code:'GRACZ10',  title:'ลด 10%',         desc:'ส่วนลด 10% สำหรับสินค้า Gracz ทุกชิ้น',      exp:'31 ธ.ค. 2568' },
-    { id:2,  code:'GRACZ20',  title:'ลด 20%',         desc:'ส่วนลด 20% เมื่อซื้อครบ 500 บาท',           exp:'31 ธ.ค. 2568' },
-    { id:3,  code:'BOWL50',   title:'ลด 50 บาท',      desc:'ลดทันที 50 บาท เมื่อซื้อชาม Gracz',          exp:'28 ก.พ. 2569' },
-    { id:4,  code:'GREENFREE',title:'ฟรีค่าส่ง',      desc:'ฟรีค่าจัดส่งทั่วประเทศ ไม่มีขั้นต่ำ',        exp:'28 ก.พ. 2569' },
-    { id:5,  code:'ECO15',    title:'ลด 15%',         desc:'ส่วนลด 15% สำหรับสินค้า Eco Series',         exp:'30 มิ.ย. 2569' },
-    { id:6,  code:'HERO25',   title:'ลด 25%',         desc:'สำหรับ Green Hero ลด 25% ทุกออเดอร์',        exp:'30 มิ.ย. 2569' },
-    { id:7,  code:'CAMP100',  title:'ลด 100 บาท',     desc:'ลด 100 บาท เมื่อซื้อชุด Gracz Camp Set',     exp:'31 มี.ค. 2569' },
-    { id:8,  code:'FRIEND30', title:'แนะนำเพื่อน',    desc:'ลด 30% เมื่อแนะนำเพื่อนมาซื้อ Gracz',        exp:'31 มี.ค. 2569' },
-    { id:9,  code:'NEWBIE',   title:'ลูกค้าใหม่ 40%', desc:'ส่วนลด 40% สำหรับลูกค้าใหม่ครั้งแรก',       exp:'30 เม.ย. 2569' },
-    { id:10, code:'SAVEBOWL', title:'ซื้อ 2 แถม 1',  desc:'ซื้อชาม Gracz 2 ใบ แถมฟรีอีก 1 ใบ',          exp:'30 เม.ย. 2569' },
-    { id:11, code:'STRAW20',  title:'หลอดลด 20%',     desc:'ลด 20% สำหรับหลอดดูด Gracz ทุกแบบ',          exp:'31 พ.ค. 2569' },
-    { id:12, code:'BAG15',    title:'ถุงผ้าลด 15%',   desc:'ลด 15% สำหรับถุงผ้า Gracz Collection',       exp:'31 พ.ค. 2569' },
-    { id:13, code:'SET200',   title:'ลด 200 บาท',     desc:'ลด 200 บาท เมื่อซื้อ Set ครบ 1,000 บาท',    exp:'30 มิ.ย. 2569' },
-    { id:14, code:'BDAY30',   title:'วันเกิดลด 30%',  desc:'ลด 30% ในเดือนวันเกิดของคุณ',                exp:'ตลอดปี 2569' },
-    { id:15, code:'EARTH10',  title:'วันโลก 10%',     desc:'ลด 10% ในวัน Earth Day และทุกวันศุกร์',      exp:'31 ธ.ค. 2568' },
-    { id:16, code:'BULK50',   title:'ซื้อมากลดมาก',   desc:'ซื้อ 5 ชิ้นขึ้นไปลด 50 บาท ทุก 5 ชิ้น',     exp:'28 ก.พ. 2569' },
-    { id:17, code:'APP20',    title:'ลดผ่าน App 20%', desc:'สั่งผ่าน App รับส่วนลดพิเศษ 20% ทันที',      exp:'30 มิ.ย. 2569' },
-    { id:18, code:'FLASH35',  title:'Flash Sale 35%', desc:'Flash Sale พิเศษ ลด 35% เฉพาะวันนี้เท่านั้น', exp:'วันนี้เท่านั้น' },
-    { id:19, code:'VIP40',    title:'VIP ลด 40%',     desc:'สำหรับสมาชิก VIP ลด 40% ทุกออเดอร์',         exp:'ตลอดปี 2569' },
-    { id:20, code:'LUCKY99',  title:'โชคดี ลด 99 บาท',desc:'คูปองโชคดี! ลดทันที 99 บาท ไม่มีขั้นต่ำ',   exp:'31 ธ.ค. 2568' },
+    gdrive("1iv5VkVKf11cjOKExPfk546_2JdWhK_NH"),gdrive("1tpcdb0UE_Y9anBZnzlW8S5zh1uML2n62"),
+    gdrive("18veg3wey5Ju0FVq3BGTO_5tiSAMozCjr"),gdrive("1RTEIphy66FTudZxKjIT9JsubZ0DkLA5z"),
+    gdrive("1SybFRM23GPpRHpycZuUPZochNDyDOEIQ"),gdrive("1MvrI-2T23tSl2286ECeLrS8FNhO_O-Xw"),
+    gdrive("1gYZ56iBiNu8LHEKn9kejtHOsHCKvH8GD"),gdrive("1SJjZniEaW-QOlbsX5ZsxSVTB2dcPe6gl"),
+    gdrive("1LbmwF7zGMmBODymIXTaYGQosES9iV-Rx"),gdrive("1tSGa9uKW4R2PDDpweeP-8l6DJjHm8n5a"),
+    gdrive("1tzxuHUmVyWFWLiDAZKo59Y0n7qXqREYx"),gdrive("16AqZ0oiHAQfFtjgbYE7n04QBSmVlt2wW"),
+    gdrive("1pLlQ_7FbzNaoFh5SjsHQrmAoNH84ekAB"),gdrive("1TnkqHkj_nGkoq9aYFgndvEhLefABLT2_"),
+    gdrive("1H8Ad6NiPUb8RGyncieMNbGbTSqMD9Dxv"),gdrive("1kNgALc57r3IDDPDG712DG2XWfHASvOUh"),
+    gdrive("1M0M2_heQf1pQFCWvtEBABnSQ15cQrE_b"),gdrive("18WwNZ-c-o2CYm9gDQbakq9EIoV9avrW9"),
+    gdrive("1NfA_XtOHU6RELPApXQzi82jiHlGRof-f"),gdrive("1YtjRDfNBLCrqw2tRKdzm5bB3IIuZy_87"),
+    gdrive("1Ji14jyLEno-ECpC_pdG_nhB9uQSP6yKa"),gdrive("1jaMPbZiQ1nyS8ZpKIfeGHz4HzoOGczS1"),
+    gdrive("1LfbvWQalYEz8apkuHXoxSRn7nKmydokM"),gdrive("16dd_gnBredOZel7ywg6CuMKlXILEDVpX"),
+    gdrive("10metE6fqf36CoXGqSZyA1E702C5nbL1_"),gdrive("13RNtwZcmBsoukgArmSrFQDkbLr1JbE25"),
+    gdrive("1Io9ENgXQXWziPviFLYO046kLVq9WCRKw"),gdrive("1WY0ZmwX4bu8Ucns1Nrb1wOo6nzskT7Km"),
+    gdrive("1WY0ZmwX4bu8Ucns1Nrb1wOo6nzskT7Km"),
 ];
 
 const confettiColors = ['#FBC02D','#2D5A27','#0288D1','#D32F2F','#7B1FA2','#E65100','#fff'];
 
+// ── Admin Page ──
+const AdminPage = ({ onBack }) => {
+    const [stockData, setStockData] = useState(null);
+    const [logs, setLogs] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [resetConfirm, setResetConfirm] = useState(null);
+
+    useEffect(() => {
+        const unsub1 = dbOn('shopStock', (data) => { setStockData(data); setLoading(false); });
+        const unsub2 = dbOn('couponLogs', (data) => {
+            if (!data) { setLogs([]); return; }
+            const arr = Object.entries(data)
+                .map(([k,v]) => ({key:k,...v}))
+                .sort((a,b) => b.key - a.key)
+                .slice(0, 50);
+            setLogs(arr);
+        });
+        return () => { unsub1(); unsub2(); };
+    }, []);
+
+    const handleReset = async (shopId) => {
+        const shop = SHOPS.find(s => s.id === shopId);
+        await dbUpd(`shopStock/${shopId}`, {
+            remaining: shop.totalStock,
+            issued: 0,
+            codeIndex: shop.type === 'code' ? 0 : null,
+        });
+        setResetConfirm(null);
+    };
+
+    const formatDate = (iso) => {
+        try {
+            const d = new Date(iso);
+            return `${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()+543} ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;
+        } catch { return iso; }
+    };
+
+    const totalIssued = stockData ? Object.values(stockData).reduce((s,v) => s+(v.issued||0), 0) : 0;
+    const totalRemaining = stockData ? Object.values(stockData).reduce((s,v) => s+(v.remaining||0), 0) : 0;
+
+    return (
+        <div className="min-h-full bg-slate-900 text-white">
+            {/* Header */}
+            <div className="bg-[#2D5A27] px-4 py-4 flex items-center gap-3 sticky top-0 z-10">
+                <button onClick={onBack} className="text-green-200 text-sm font-bold">← กลับ</button>
+                <div>
+                    <p className="font-black text-lg leading-none">Admin Dashboard</p>
+                    <p className="text-green-200 text-xs">Gracz Replace – สถิติคูปอง</p>
+                </div>
+            </div>
+
+            <div className="p-4 space-y-4 max-w-lg mx-auto">
+                {/* Summary Cards */}
+                <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-slate-800 rounded-2xl p-4 text-center">
+                        <p className="text-3xl font-black text-yellow-400">{totalIssued.toLocaleString()}</p>
+                        <p className="text-xs text-slate-400 font-bold mt-1">คูปองที่ออกไปแล้ว</p>
+                    </div>
+                    <div className="bg-slate-800 rounded-2xl p-4 text-center">
+                        <p className="text-3xl font-black text-green-400">{totalRemaining.toLocaleString()}</p>
+                        <p className="text-xs text-slate-400 font-bold mt-1">คูปองคงเหลือรวม</p>
+                    </div>
+                </div>
+
+                {/* Shop Stock Table */}
+                <div className="bg-slate-800 rounded-2xl overflow-hidden">
+                    <div className="px-4 py-3 border-b border-slate-700">
+                        <p className="font-black text-sm">📊 สต็อกคูปองแต่ละร้าน</p>
+                    </div>
+                    {loading ? (
+                        <p className="text-center text-slate-400 py-6 text-sm animate-pulse">กำลังโหลด...</p>
+                    ) : stockData ? (
+                        <div className="divide-y divide-slate-700">
+                            {SHOPS.map(shop => {
+                                const s = stockData[shop.id];
+                                if (!s) return null;
+                                const pct = Math.round((s.remaining / shop.totalStock) * 100);
+                                const barColor = pct > 50 ? '#4ade80' : pct > 20 ? '#fbbf24' : '#f87171';
+                                return (
+                                    <div key={shop.id} className="px-4 py-3">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-lg">{shop.emoji}</span>
+                                                <div>
+                                                    <p className="font-bold text-sm leading-none">{shop.name}</p>
+                                                    <p className="text-[10px] text-slate-400">{shop.discount}</p>
+                                                </div>
+                                            </div>
+                                            <div className="text-right">
+                                                <p className="font-black text-sm">
+                                                    <span style={{color: barColor}}>{s.remaining.toLocaleString()}</span>
+                                                    <span className="text-slate-500">/{shop.totalStock.toLocaleString()}</span>
+                                                </p>
+                                                <p className="text-[10px] text-slate-400">ออกไป {(s.issued||0).toLocaleString()} ใบ</p>
+                                            </div>
+                                        </div>
+                                        {/* Progress bar */}
+                                        <div className="w-full bg-slate-700 rounded-full h-1.5 mb-2">
+                                            <div className="h-1.5 rounded-full transition-all" style={{width:`${pct}%`, background: barColor}}/>
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                            <p className="text-[10px] text-slate-500">
+                                                {s.lastIssuedAt ? `ล่าสุด: ${formatDate(s.lastIssuedAt)}` : 'ยังไม่มีการออก'}
+                                            </p>
+                                            {resetConfirm === shop.id ? (
+                                                <div className="flex gap-1">
+                                                    <button onClick={() => handleReset(shop.id)} className="text-[10px] bg-red-500 px-2 py-1 rounded-lg font-bold">ยืนยัน</button>
+                                                    <button onClick={() => setResetConfirm(null)} className="text-[10px] bg-slate-600 px-2 py-1 rounded-lg font-bold">ยกเลิก</button>
+                                                </div>
+                                            ) : (
+                                                <button onClick={() => setResetConfirm(shop.id)} className="text-[10px] text-slate-500 hover:text-red-400 font-bold transition-colors">รีเซ็ต</button>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    ) : (
+                        <div className="p-4 text-center">
+                            <p className="text-slate-400 text-sm mb-3">ยังไม่มีข้อมูล</p>
+                            <button onClick={initShopStock} className="bg-green-600 text-white px-4 py-2 rounded-xl text-sm font-bold">
+                                เริ่มต้นระบบ
+                            </button>
+                        </div>
+                    )}
+                </div>
+
+                {/* Recent Logs */}
+                <div className="bg-slate-800 rounded-2xl overflow-hidden">
+                    <div className="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
+                        <p className="font-black text-sm">🎫 ประวัติการออกคูปองล่าสุด</p>
+                        <p className="text-[10px] text-slate-400">{logs.length} รายการ</p>
+                    </div>
+                    {logs.length === 0 ? (
+                        <p className="text-center text-slate-500 py-6 text-sm">ยังไม่มีการออกคูปอง</p>
+                    ) : (
+                        <div className="divide-y divide-slate-700 max-h-72 overflow-y-auto">
+                            {logs.map((log, i) => {
+                                const shop = SHOPS.find(s => s.id === log.shopId);
+                                return (
+                                    <div key={log.key} className="px-4 py-2 flex items-center gap-3">
+                                        <span className="text-base">{shop?.emoji || '🎫'}</span>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-xs font-bold truncate">{log.shopName}</p>
+                                            {log.code && <p className="text-[10px] text-yellow-400 font-mono">{log.code}</p>}
+                                        </div>
+                                        <p className="text-[10px] text-slate-500 text-right whitespace-nowrap">{formatDate(log.issuedAt)}</p>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+
+                <p className="text-center text-slate-600 text-[10px] pb-4">Gracz Replace Admin v1.0</p>
+            </div>
+        </div>
+    );
+};
+
+// ── Treasure Box (New) ──
 const TreasureBox = ({ winner, onClose }) => {
-    const [phase, setPhase] = useState('bounce');
-    const [coupon, setCoupon] = useState(null);
+    const [phase, setPhase] = useState('bounce'); // bounce → shaking → opening → loading → coupon | empty
+    const [couponData, setCouponData] = useState(null);
     const [confetti, setConfetti] = useState([]);
     const [copyDone, setCopyDone] = useState(false);
+    const [error, setError] = useState(null);
 
-    const handleBoxClick = () => {
+    const handleBoxClick = async () => {
         if (phase !== 'bounce') return;
         setPhase('shaking');
-        setTimeout(() => {
+
+        setTimeout(async () => {
             setPhase('opening');
-            const picked = coupons[Math.floor(Math.random() * coupons.length)];
-            setCoupon(picked);
-            setConfetti(Array.from({length:18},(_,i)=>({
+
+            // สร้าง confetti
+            setConfetti(Array.from({length:20},(_,i)=>({
                 id:i, left:`${Math.random()*90+5}%`,
                 color: confettiColors[i % confettiColors.length],
                 delay:`${Math.random()*0.5}s`,
                 dur:`${0.8+Math.random()*0.8}s`,
                 size:`${8+Math.random()*10}px`,
             })));
-            setTimeout(() => setPhase('coupon'), 500);
+
+            setTimeout(async () => {
+                setPhase('loading');
+                try {
+                    await initShopStock(); // ensure stock exists
+                    const result = await claimCoupon();
+                    if (!result) {
+                        setPhase('empty');
+                    } else {
+                        setCouponData(result);
+                        setPhase('coupon');
+                    }
+                } catch(e) {
+                    setError('เกิดข้อผิดพลาด กรุณาลองใหม่');
+                    setPhase('bounce');
+                }
+            }, 400);
         }, 500);
     };
 
-    const shareText = coupon ? `🎮 มาเล่นเกม Gracz Replace กันเถอะ!\nเล่นสนุก ลุ้นของรางวัลสุดพิเศษกันได้เลย 🎁\nคลิกเล่นได้เลย: ${window.location.href}` : '';
+    const shareText = `🎮 มาเล่นเกม Gracz Replace กันเถอะ!\nเล่นสนุก ลุ้นของรางวัลสุดพิเศษกันได้เลย 🎁\nคลิกเล่นได้เลย: ${window.location.href}`;
     const shareLine = () => window.open(`https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent(shareText)}`,'_blank');
     const shareFB   = () => window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.href)}&quote=${encodeURIComponent(shareText)}`,'_blank');
-    const copyLink  = () => { navigator.clipboard.writeText(shareText).then(()=>{ setCopyDone(true); setTimeout(()=>setCopyDone(false),2000); }); };
+    const copyCode  = () => {
+        const text = couponData?.couponCode
+            ? `โค้ดส่วนลด ${couponData.shop.name}: ${couponData.couponCode}`
+            : `คูปองส่วนลด ${couponData?.shop?.discount} จาก ${couponData?.shop?.name}`;
+        navigator.clipboard.writeText(text).then(()=>{ setCopyDone(true); setTimeout(()=>setCopyDone(false),2000); });
+    };
+
+    const shop = couponData?.shop;
+    const code = couponData?.couponCode;
 
     return (
-        <div className="fixed inset-0 flex flex-col items-center justify-center z-50 p-6" style={{background:'linear-gradient(135deg,#1a3a14 0%,#2D5A27 100%)'}}>
+        <div className="fixed inset-0 flex flex-col items-center justify-center z-50 p-5 overflow-y-auto"
+            style={{background:'linear-gradient(135deg,#1a3a14 0%,#2D5A27 100%)'}}>
+
+            {/* Confetti */}
             {confetti.map(c=>(
                 <div key={c.id} className="fixed pointer-events-none rounded-sm" style={{
                     left:c.left, top:'-10px', width:c.size, height:c.size,
@@ -257,11 +523,15 @@ const TreasureBox = ({ winner, onClose }) => {
                     animationFillMode:'forwards', animationTimingFunction:'linear'
                 }}/>
             ))}
-            <div className="text-center mb-6">
-                <p className="text-yellow-300 text-sm font-bold tracking-widest uppercase mb-1">🏆 ผู้ชนะ</p>
-                <p className="text-white text-3xl font-black">{winner}</p>
+
+            {/* Winner name */}
+            <div className="text-center mb-5">
+                <p className="text-yellow-300 text-xs font-black tracking-widest uppercase mb-1">🏆 ผู้ชนะ</p>
+                <p className="text-white text-3xl font-black shimmer-text">{winner}</p>
             </div>
-            {phase !== 'coupon' ? (
+
+            {/* Box phases */}
+            {(phase === 'bounce' || phase === 'shaking' || phase === 'opening') && (
                 <div className="flex flex-col items-center">
                     <div onClick={handleBoxClick} className={`cursor-pointer select-none ${phase==='bounce'?'box-bounce':''} ${phase==='shaking'?'box-shake':''}`}>
                         <div className="text-center" style={{fontSize:'100px',lineHeight:1,filter:'drop-shadow(0 8px 24px rgba(251,191,36,0.7))'}}>
@@ -269,52 +539,107 @@ const TreasureBox = ({ winner, onClose }) => {
                         </div>
                     </div>
                     <p className="text-yellow-200 font-bold mt-4 text-sm animate-pulse">
-                        {phase==='bounce' ? 'แตะกล่องเพื่อเปิดรางวัล!' : phase==='shaking' ? 'กำลังเปิด...' : '✨'}
+                        {phase==='bounce' ? '🎁 แตะกล่องเพื่อรับรางวัล!' : phase==='shaking' ? 'กำลังเปิด...' : '✨'}
                     </p>
+                    {error && <p className="text-red-300 text-xs mt-2">{error}</p>}
                 </div>
-            ) : (
+            )}
+
+            {phase === 'loading' && (
+                <div className="flex flex-col items-center gap-4">
+                    <div className="text-6xl animate-pulse">🎫</div>
+                    <p className="text-yellow-200 font-bold text-sm animate-pulse">กำลังจับสลากคูปอง...</p>
+                </div>
+            )}
+
+            {/* Coupon Card */}
+            {phase === 'coupon' && shop && (
                 <div className="coupon-slide w-full max-w-xs">
-                    <p className="text-yellow-300 text-center text-xs font-bold uppercase tracking-widest mb-3">🎊 คูปองของคุณ</p>
-                    <div className="coupon-glow bg-white rounded-3xl overflow-hidden">
-                        <div className="bg-[#2D5A27] px-6 py-5 text-center">
-                            <p className="text-green-200 text-xs font-bold uppercase tracking-widest mb-1">Gracz Replace</p>
-                            <p className="text-white text-3xl font-black">{coupon.title}</p>
+                    <p className="text-yellow-300 text-center text-xs font-black uppercase tracking-widest mb-3">🎊 คูปองของคุณ</p>
+
+                    <div className="coupon-glow rounded-3xl overflow-hidden" style={{background: shop.bgColor}}>
+                        {/* Shop Header */}
+                        <div className="px-6 py-5 text-center" style={{background: shop.color}}>
+                            <p className="text-white/70 text-xs font-bold uppercase tracking-widest mb-1">Gracz Replace × {shop.name}</p>
+                            <p className="text-5xl mb-2">{shop.emoji}</p>
+                            <p className="text-white text-2xl font-black">{shop.name}</p>
+                            <p className="text-white/80 text-sm font-bold mt-1">{shop.discount}</p>
                         </div>
-                        <div className="flex items-center px-4 py-2">
-                            <div className="flex-1 border-t-2 border-dashed border-slate-200"/>
-                            <div className="mx-2 text-slate-300 text-xs">✂</div>
-                            <div className="flex-1 border-t-2 border-dashed border-slate-200"/>
+
+                        {/* Divider */}
+                        <div className="flex items-center px-4 py-2" style={{background: shop.bgColor}}>
+                            <div className="flex-1 border-t-2 border-dashed border-slate-300"/>
+                            <div className="mx-2 text-slate-400 text-xs">✂</div>
+                            <div className="flex-1 border-t-2 border-dashed border-slate-300"/>
                         </div>
-                        <div className="px-6 pb-5 text-center">
-                            <p className="text-slate-600 text-sm font-bold mb-3 leading-relaxed">{coupon.desc}</p>
-                            <div className="bg-slate-50 border-2 border-dashed border-[#2D5A27] rounded-xl py-2 px-4 mb-2">
-                                <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">โค้ดส่วนลด</p>
-                                <p className="text-[#2D5A27] text-2xl font-black tracking-widest">{coupon.code}</p>
-                            </div>
-                            <p className="text-slate-400 text-[11px] font-bold">หมดอายุ: {coupon.exp}</p>
+
+                        {/* Coupon detail */}
+                        <div className="px-6 pb-5 text-center" style={{background: shop.bgColor}}>
+                            <p className="text-slate-600 text-sm font-bold mb-3 leading-relaxed">{shop.desc}</p>
+
+                            {code ? (
+                                <div className="rounded-xl py-3 px-4 mb-2 border-2 border-dashed" style={{borderColor: shop.color, background:'white'}}>
+                                    <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">โค้ดส่วนลด</p>
+                                    <p className="text-2xl font-black tracking-widest" style={{color: shop.color}}>{code}</p>
+                                </div>
+                            ) : (
+                                <div className="rounded-xl py-3 px-4 mb-2 border-2 border-dashed" style={{borderColor: shop.color, background:'white'}}>
+                                    <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">ประเภทส่วนลด</p>
+                                    <p className="text-xl font-black" style={{color: shop.color}}>ส่วนลด {shop.discount}</p>
+                                    <p className="text-[10px] text-slate-400 mt-1">แคปหน้าจอเพื่อรับสิทธิ์</p>
+                                </div>
+                            )}
                         </div>
                     </div>
+
+                    {/* Actions */}
                     <div className="mt-4 space-y-2">
-                        {/* แจ้งเตือนแคปหน้าจอ */}
-                        <div className="bg-yellow-400 rounded-2xl px-4 py-3 text-center mb-1">
-                            <p className="text-[#1a3a14] text-xs font-black leading-relaxed">📸 แคปหน้าจอส่งไลน์มาที่ <span className="underline">@gracz</span> เพื่อรับของรางวัลเลย!</p>
+                        <div className="bg-yellow-400 rounded-2xl px-4 py-3 text-center">
+                            <p className="text-[#1a3a14] text-xs font-black leading-relaxed">
+                                📸 แคปหน้าจอส่งไลน์มาที่ <span className="underline">@gracz</span> เพื่อรับของรางวัลเลย!
+                            </p>
                         </div>
-                        <p className="text-yellow-200 text-center text-xs font-bold uppercase tracking-widest mb-2">ชวนเพื่อนมาเล่น</p>
+                        {code && (
+                            <button onClick={copyCode}
+                                className="w-full py-3 rounded-xl font-black text-white text-sm flex items-center justify-center gap-2 transition-all"
+                                style={{background: copyDone ? '#666' : shop.color}}>
+                                {copyDone ? '✅ คัดลอกแล้ว!' : '📋 คัดลอกโค้ด'}
+                            </button>
+                        )}
+                        <p className="text-yellow-200 text-center text-xs font-bold uppercase tracking-widest">ชวนเพื่อนมาเล่น</p>
                         <div className="flex gap-2">
                             <button onClick={shareLine} className="flex-1 py-3 rounded-xl font-black text-white text-sm flex items-center justify-center gap-1.5" style={{background:'#06C755'}}>
-                                <span style={{fontSize:'16px'}}>💬</span> LINE
+                                <span>💬</span> LINE
                             </button>
                             <button onClick={shareFB} className="flex-1 py-3 rounded-xl font-black text-white text-sm flex items-center justify-center gap-1.5" style={{background:'#1877F2'}}>
-                                <span style={{fontSize:'16px'}}>📘</span> Facebook
-                            </button>
-                            <button onClick={copyLink} className="flex-1 py-3 rounded-xl font-black text-white text-sm flex items-center justify-center gap-1.5" style={{background: copyDone?'#666':'#555'}}>
-                                <span style={{fontSize:'16px'}}>{copyDone?'✅':'🔗'}</span> {copyDone?'แล้ว!':'Copy'}
+                                <span>📘</span> Facebook
                             </button>
                         </div>
-                        <button onClick={onClose} className="w-full py-3 rounded-xl font-black text-[#2D5A27] bg-white text-sm mt-1">
+                        <button onClick={onClose} className="w-full py-3 rounded-xl font-black text-[#2D5A27] bg-white text-sm">
                             กลับหน้าหลัก
                         </button>
                     </div>
+                </div>
+            )}
+
+            {/* Empty — coupon หมดทุกร้าน */}
+            {phase === 'empty' && (
+                <div className="w-full max-w-xs text-center coupon-slide">
+                    <div className="text-6xl mb-4">😔</div>
+                    <div className="bg-white/10 rounded-3xl p-6 mb-4">
+                        <p className="text-white text-lg font-black mb-2">คูปองหมดแล้วในขณะนี้</p>
+                        <p className="text-green-200 text-sm font-bold leading-relaxed">
+                            ขออภัยครับ คูปองจากร้านค้าพาร์ทเนอร์หมดแล้วทุกร้าน
+                        </p>
+                    </div>
+                    <div className="bg-[#06C755] rounded-2xl px-5 py-4 text-center mb-4">
+                        <p className="text-white text-sm font-black mb-1">ติดต่อรับสิทธิ์ได้ที่</p>
+                        <p className="text-white text-2xl font-black">Line@ @gracz</p>
+                        <p className="text-green-100 text-xs mt-1">ทีมงานจะดูแลคุณโดยตรงครับ 💚</p>
+                    </div>
+                    <button onClick={onClose} className="w-full py-3 rounded-xl font-black text-[#2D5A27] bg-white text-sm">
+                        กลับหน้าหลัก
+                    </button>
                 </div>
             )}
         </div>
@@ -330,13 +655,13 @@ const playerTokens = [
     { name: 'ทีมส้ม',    color: 'bg-[#E65100]', hex: '#E65100' },
 ];
 
-// ── Components ──
 const Icon = ({ name, size = 24, className = "" }) => {
     const icons = {
         leaf:   <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.5 21 2c-2.5 4-3 5.5-4.1 11.2A7 7 0 0 1 11 20z" />,
         trophy: <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6 M18 9h1.5a2.5 2.5 0 0 0 0-5H18 M4 22h16 M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22 M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22 M18 2H6v7a6 6 0 0 0 12 0V2z" />,
         copy:   <path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2M8 4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2M8 4h8" />,
         wifi:   <React.Fragment><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1"/></React.Fragment>,
+        chart:  <React.Fragment><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></React.Fragment>,
     };
     return (
         <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
@@ -375,13 +700,11 @@ const TileZoomModal = ({ tile, player, coord, tileIdx, onDone }) => {
     const imgSrc = tileImages[tileIdx] || tileImages[0];
     const sparklePositions = [
         { top:'-22px', left:'50%', transform:'translateX(-50%)' },
-        { top:'50%',   right:'-22px', transform:'translateY(-50%)' },
+        { top:'50%', right:'-22px', transform:'translateY(-50%)' },
         { bottom:'-22px', left:'50%', transform:'translateX(-50%)' },
-        { top:'50%',   left:'-22px', transform:'translateY(-50%)' },
-        { top:'-16px', left:'-16px' },
-        { top:'-16px', right:'-16px' },
-        { bottom:'-16px', left:'-16px' },
-        { bottom:'-16px', right:'-16px' },
+        { top:'50%', left:'-22px', transform:'translateY(-50%)' },
+        { top:'-16px', left:'-16px' }, { top:'-16px', right:'-16px' },
+        { bottom:'-16px', left:'-16px' }, { bottom:'-16px', right:'-16px' },
     ];
     return (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-6">
@@ -415,15 +738,21 @@ const App = () => {
     const [lastRoll, setLastRoll] = useState(1);
     const [showTileZoom, setShowTileZoom] = useState(null);
     const [showEffectModal, setShowEffectModal] = useState(null);
-    const [showInviteModal, setShowInviteModal] = useState(null); // ── ช่อง 22
+    const [showInviteModal, setShowInviteModal] = useState(null);
     const [copied, setCopied] = useState(false);
     const [playerCount, setPlayerCount] = useState(2);
     const [fbReady, setFbReady] = useState(!!window._firebaseReady);
     const [isOffline, setIsOffline] = useState(false);
+    const [showAdmin, setShowAdmin] = useState(false);
     const unsubRef = useRef(null);
     const offlineStateRef = useRef(null);
 
-    // ── Offline helpers ──
+    // Check for admin mode via URL
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('admin') === 'true') setShowAdmin(true);
+    }, []);
+
     const startOfflineGame = () => {
         const players = Array.from({ length: playerCount }, (_, i) => ({
             id: i, name: playerTokens[i].name, pos: 0, skipTurns: 0, color: playerTokens[i].color, hex: playerTokens[i].hex
@@ -441,11 +770,8 @@ const App = () => {
         setScreen('game');
     };
 
-    useEffect(() => {
-        waitForFirebase(() => setFbReady(true));
-    }, []);
+    useEffect(() => { waitForFirebase(() => setFbReady(true)); }, []);
 
-    // ── Listen to room ──
     useEffect(() => {
         if (!roomCode || !fbReady) return;
         if (unsubRef.current) unsubRef.current();
@@ -457,7 +783,6 @@ const App = () => {
         return () => { if (unsubRef.current) unsubRef.current(); };
     }, [roomCode, fbReady]);
 
-    // ── Create room ──
     const createRoom = async () => {
         if (!fbReady) return;
         const code = randomCode();
@@ -465,20 +790,16 @@ const App = () => {
             id: i, name: playerTokens[i].name, pos: 0, skipTurns: 0, color: playerTokens[i].color, hex: playerTokens[i].hex
         }));
         await dbSet(`rooms/${code}`, {
-            screen: 'waiting',
-            players,
-            currentPlayerIdx: 0,
-            lastRoll: 1,
+            screen: 'waiting', players,
+            currentPlayerIdx: 0, lastRoll: 1,
             logs: ["ยินดีต้อนรับสู่ Gracz!"],
-            winner: null,
-            playerCount,
+            winner: null, playerCount,
         });
         setRoomCode(code);
         setMyIdx(0);
         setScreen('waiting');
     };
 
-    // ── Join room ──
     const joinRoom = async () => {
         if (!fbReady || !joinInput) return;
         const code = joinInput.toUpperCase();
@@ -492,7 +813,6 @@ const App = () => {
         setScreen(data.screen === 'game' ? 'game' : 'waiting');
     };
 
-    // ── Start game (host only) ──
     const startGame = async () => {
         await dbUpd(`rooms/${roomCode}`, { screen: 'game', joinedCount: gameState?.playerCount || playerCount });
     };
@@ -501,7 +821,6 @@ const App = () => {
         navigator.clipboard.writeText(roomCode).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
     };
 
-    // ── Game logic ──
     const gs = gameState;
     const isMyTurn = gs && (isOffline ? true : gs.currentPlayerIdx === myIdx);
 
@@ -528,27 +847,19 @@ const App = () => {
             if (!isEffect) {
                 setTimeout(() => {
                     const pos = newPlayers[playerIdx].pos;
-                    const tile = boardTiles[pos];
-                    const coord = tileCoords[pos];
                     setShowTileZoom({
-                        tile, player: newPlayers[playerIdx], coord, tileIdx: pos,
-                        onDone: () => {
-                            setShowTileZoom(null);
-                            checkTileEffect(playerIdx, newPlayers);
-                        }
+                        tile: boardTiles[pos], player: newPlayers[playerIdx],
+                        coord: tileCoords[pos], tileIdx: pos,
+                        onDone: () => { setShowTileZoom(null); checkTileEffect(playerIdx, newPlayers); }
                     });
                 }, 1300);
             } else {
                 setTimeout(() => {
                     const pos = newPlayers[playerIdx].pos;
-                    const tile = boardTiles[pos];
-                    const coord = tileCoords[pos];
                     setShowTileZoom({
-                        tile, player: newPlayers[playerIdx], coord, tileIdx: pos,
-                        onDone: () => {
-                            setShowTileZoom(null);
-                            moveToNextPlayer(newPlayers);
-                        }
+                        tile: boardTiles[pos], player: newPlayers[playerIdx],
+                        coord: tileCoords[pos], tileIdx: pos,
+                        onDone: () => { setShowTileZoom(null); moveToNextPlayer(newPlayers); }
                     });
                 }, 400);
             }
@@ -566,40 +877,29 @@ const App = () => {
         }
 
         if (tile.effect) {
-            // ── ช่อง 22: ชวนเพื่อน ──
             if (tile.effect.invite) {
-                // ย้ายตัวเองไป +1 ก่อน
                 const selfMoved = pList.map((p, i) => {
                     if (i !== playerIdx) return p;
                     return { ...p, pos: Math.min(p.pos + 1, boardTiles.length - 1) };
                 });
                 pushUpdate({ players: selfMoved }).then(() => {
                     setShowInviteModal({
-                        playerIdx,
-                        players: selfMoved,
+                        playerIdx, players: selfMoved,
                         onSelect: (friendIdx) => {
                             setShowInviteModal(null);
-                            // ขยับเพื่อนที่ถูกเลือก +1
                             const friendMoved = selfMoved.map((p, i) => {
                                 if (i !== friendIdx) return p;
                                 return { ...p, pos: Math.min(p.pos + 1, boardTiles.length - 1) };
                             });
-                            pushUpdate({ players: friendMoved }).then(() => {
-                                moveToNextPlayer(friendMoved);
-                            });
+                            pushUpdate({ players: friendMoved }).then(() => { moveToNextPlayer(friendMoved); });
                         }
                     });
                 });
-            // ── เดิน/ถอย ──
             } else if (tile.effect.move) {
                 setShowEffectModal({
                     player: pList[playerIdx], tile,
-                    onClose: () => {
-                        setShowEffectModal(null);
-                        handleMove(playerIdx, tile.effect.move, true, pList);
-                    }
+                    onClose: () => { setShowEffectModal(null); handleMove(playerIdx, tile.effect.move, true, pList); }
                 });
-            // ── หยุดตา ──
             } else if (tile.effect.skip) {
                 setShowEffectModal({
                     player: pList[playerIdx], tile,
@@ -645,7 +945,9 @@ const App = () => {
         }, 1000);
     };
 
-    // ── Screens ──
+    // Admin page
+    if (showAdmin) return <AdminPage onBack={() => setShowAdmin(false)} />;
+
     if (!fbReady) return (
         <div className="min-h-full flex items-center justify-center bg-[#f0f4f0]">
             <p className="text-[#2D5A27] font-black animate-pulse">กำลังเชื่อมต่อ Firebase...</p>
@@ -658,48 +960,50 @@ const App = () => {
             <div className="bg-white rounded-[2.5rem] shadow-xl w-full max-w-sm text-center overflow-hidden">
                 <img
                     src="https://drive.google.com/thumbnail?id=1PZ6akJuBT0L75oV5CNyxz7nSDRIq8Idt&sz=w800"
-                    alt="Gracz Replace Logo"
-                    className="w-full"
-                    style={{ display: 'block' }}
+                    alt="Gracz Replace Logo" className="w-full" style={{ display: 'block' }}
                 />
                 <div className="p-8 pt-6">
-                <div className="bg-slate-50 p-5 rounded-2xl mb-4">
-                    <p className="text-xs font-bold text-slate-400 mb-3 uppercase">สร้างห้องใหม่</p>
-                    <div className="flex justify-center gap-2 mb-3 flex-wrap">
-                        {[2,3,4,5,6].map(n => (
-                            <button key={n} onClick={() => setPlayerCount(n)}
-                                className={`w-11 h-11 rounded-xl font-bold text-sm transition-all ${playerCount===n?'bg-[#2D5A27] text-white':'bg-white text-slate-400 border'}`}>
-                                {n}
-                            </button>
-                        ))}
+                    <div className="bg-slate-50 p-5 rounded-2xl mb-4">
+                        <p className="text-xs font-bold text-slate-400 mb-3 uppercase">สร้างห้องใหม่</p>
+                        <div className="flex justify-center gap-2 mb-3 flex-wrap">
+                            {[2,3,4,5,6].map(n => (
+                                <button key={n} onClick={() => setPlayerCount(n)}
+                                    className={`w-11 h-11 rounded-xl font-bold text-sm transition-all ${playerCount===n?'bg-[#2D5A27] text-white':'bg-white text-slate-400 border'}`}>
+                                    {n}
+                                </button>
+                            ))}
+                        </div>
+                        <div className="flex justify-center gap-1.5 mb-3">
+                            {Array.from({ length: playerCount }, (_, i) => (
+                                <div key={i} className="flex flex-col items-center gap-1">
+                                    <div className="w-5 h-5 rounded-full border-2 border-white shadow" style={{ background: playerTokens[i].hex }} />
+                                    <span className="text-[8px] text-slate-400 font-bold">{playerTokens[i].name.replace('ทีม','')}</span>
+                                </div>
+                            ))}
+                        </div>
+                        <button onClick={createRoom} className="w-full bg-[#2D5A27] text-white py-3 rounded-xl font-black text-base shadow">
+                            สร้างห้อง ({playerCount} คน)
+                        </button>
+                        <button onClick={startOfflineGame} className="w-full mt-2 bg-amber-500 text-white py-3 rounded-xl font-black text-base shadow flex items-center justify-center gap-2">
+                            <span>📵</span> เล่น Offline ({playerCount} คน)
+                        </button>
                     </div>
-                    <div className="flex justify-center gap-1.5 mb-3">
-                        {Array.from({ length: playerCount }, (_, i) => (
-                            <div key={i} className="flex flex-col items-center gap-1">
-                                <div className="w-5 h-5 rounded-full border-2 border-white shadow" style={{ background: playerTokens[i].hex }} />
-                                <span className="text-[8px] text-slate-400 font-bold">{playerTokens[i].name.replace('ทีม','')}</span>
-                            </div>
-                        ))}
+                    <div className="bg-slate-50 p-5 rounded-2xl mb-4">
+                        <p className="text-xs font-bold text-slate-400 mb-3 uppercase">เข้าร่วมห้อง</p>
+                        <input
+                            value={joinInput} onChange={e => setJoinInput(e.target.value.toUpperCase())}
+                            placeholder="กรอก Room Code"
+                            className="w-full border-2 border-slate-200 rounded-xl px-4 py-2 text-center font-black text-lg tracking-widest mb-3 focus:outline-none focus:border-[#2D5A27]"
+                            maxLength={5}
+                        />
+                        <button onClick={joinRoom} disabled={!joinInput} className="w-full bg-[#0288D1] text-white py-3 rounded-xl font-black text-base shadow disabled:opacity-40">
+                            เข้าห้อง
+                        </button>
                     </div>
-                    <button onClick={createRoom} className="w-full bg-[#2D5A27] text-white py-3 rounded-xl font-black text-base shadow">
-                        สร้างห้อง ({playerCount} คน)
+                    {/* Admin button (subtle) */}
+                    <button onClick={() => setShowAdmin(true)} className="w-full py-2 text-slate-300 text-xs font-bold flex items-center justify-center gap-1">
+                        <Icon name="chart" size={12} /> Admin Dashboard
                     </button>
-                    <button onClick={startOfflineGame} className="w-full mt-2 bg-amber-500 text-white py-3 rounded-xl font-black text-base shadow flex items-center justify-center gap-2">
-                        <span>📵</span> เล่น Offline ({playerCount} คน)
-                    </button>
-                </div>
-                <div className="bg-slate-50 p-5 rounded-2xl">
-                    <p className="text-xs font-bold text-slate-400 mb-3 uppercase">เข้าร่วมห้อง</p>
-                    <input
-                        value={joinInput} onChange={e => setJoinInput(e.target.value.toUpperCase())}
-                        placeholder="กรอก Room Code"
-                        className="w-full border-2 border-slate-200 rounded-xl px-4 py-2 text-center font-black text-lg tracking-widest mb-3 focus:outline-none focus:border-[#2D5A27]"
-                        maxLength={5}
-                    />
-                    <button onClick={joinRoom} disabled={!joinInput} className="w-full bg-[#0288D1] text-white py-3 rounded-xl font-black text-base shadow disabled:opacity-40">
-                        เข้าห้อง
-                    </button>
-                </div>
                 </div>
             </div>
         </div>
@@ -745,20 +1049,14 @@ const App = () => {
 
     // GAME OVER
     const onBackToLobby = () => { setScreen('lobby'); setRoomCode(''); setGameState(null); setIsOffline(false); offlineStateRef.current = null; };
+
     if (gs?.winner) {
-        const iAmWinner = isOffline
-            ? true // offline ทุกคนเห็น TreasureBox
-            : gs.players?.[myIdx]?.name === gs.winner;
+        const iAmWinner = isOffline ? true : gs.players?.[myIdx]?.name === gs.winner;
 
-        if (iAmWinner) return (
-            <TreasureBox winner={gs.winner} onClose={onBackToLobby} />
-        );
+        if (iAmWinner) return <TreasureBox winner={gs.winner} onClose={onBackToLobby} />;
 
-        // ── หน้าแพ้ ──
+        // หน้าแพ้
         const loserShareText = `🎮 มาเล่นเกม Gracz Replace กันเถอะ!\nเล่นสนุก ลุ้นของรางวัลสุดพิเศษกันได้เลย 🎁\nคลิกเล่นได้เลย: ${window.location.href}`;
-        const loserShareLine = () => window.open(`https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent(loserShareText)}`,'_blank');
-        const loserShareFB   = () => window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.href)}&quote=${encodeURIComponent(loserShareText)}`,'_blank');
-
         return (
             <div className="fixed inset-0 flex flex-col items-center justify-center z-50 p-6 overflow-y-auto"
                 style={{background:'linear-gradient(135deg,#1a3a14 0%,#2D5A27 100%)'}}>
@@ -766,27 +1064,24 @@ const App = () => {
                     <p className="text-6xl mb-3">😢</p>
                     <p className="text-yellow-300 text-sm font-bold tracking-widest uppercase mb-1">ผู้ชนะคือ</p>
                     <p className="text-white text-2xl font-black mb-4">🏆 {gs.winner}</p>
-
-                    {/* ข้อความแพ้ */}
                     <div className="bg-white/10 rounded-3xl p-5 mb-5">
                         <p className="text-white text-base font-black leading-relaxed mb-1">เสียใจด้วยนะ 😔</p>
                         <p className="text-green-200 text-sm font-bold leading-relaxed">คุณฝีมือยังไม่ถึงในครั้งนี้...</p>
                     </div>
-
-                    {/* ชวนเพื่อน */}
                     <div className="bg-yellow-400 rounded-2xl px-4 py-3 text-center mb-4">
                         <p className="text-[#1a3a14] text-xs font-black leading-relaxed">🎮 ชวนเพื่อนมาเล่นด้วยกัน รับของรางวัลสุดพิเศษ!</p>
                     </div>
                     <div className="flex gap-2 mb-3">
-                        <button onClick={loserShareLine} className="flex-1 py-3 rounded-xl font-black text-white text-sm flex items-center justify-center gap-1.5" style={{background:'#06C755'}}>
-                            <span style={{fontSize:'16px'}}>💬</span> LINE
+                        <button onClick={() => window.open(`https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent(loserShareText)}`,'_blank')}
+                            className="flex-1 py-3 rounded-xl font-black text-white text-sm flex items-center justify-center gap-1.5" style={{background:'#06C755'}}>
+                            <span>💬</span> LINE
                         </button>
-                        <button onClick={loserShareFB} className="flex-1 py-3 rounded-xl font-black text-white text-sm flex items-center justify-center gap-1.5" style={{background:'#1877F2'}}>
-                            <span style={{fontSize:'16px'}}>📘</span> Facebook
+                        <button onClick={() => window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.href)}&quote=${encodeURIComponent(loserShareText)}`,'_blank')}
+                            className="flex-1 py-3 rounded-xl font-black text-white text-sm flex items-center justify-center gap-1.5" style={{background:'#1877F2'}}>
+                            <span>📘</span> Facebook
                         </button>
                     </div>
-                    <button onClick={onBackToLobby}
-                        className="w-full py-4 rounded-2xl font-black text-[#2D5A27] bg-white text-lg shadow-xl active:scale-95 transition-all">
+                    <button onClick={onBackToLobby} className="w-full py-4 rounded-2xl font-black text-[#2D5A27] bg-white text-lg shadow-xl">
                         กลับหน้าหลัก
                     </button>
                 </div>
@@ -804,7 +1099,6 @@ const App = () => {
 
         return (
             <div className="min-h-full flex flex-col bg-[#f0f4f0]">
-                {/* Player bar */}
                 <div className="flex justify-center gap-2 p-3 bg-white/80 sticky top-0 z-30 overflow-x-auto whitespace-nowrap border-b">
                     {players.map((p, i) => (
                         <div key={i} className={`flex items-center gap-2 px-3 py-1.5 rounded-full border-2 transition-all ${currentPlayerIdx===i?'border-[#2D5A27] bg-green-50 scale-105':'border-transparent opacity-50'}`}>
@@ -815,17 +1109,12 @@ const App = () => {
                     ))}
                 </div>
 
-                {/* Board */}
                 <div className="relative w-full aspect-[4/3] bg-white p-1">
                     <img src={boardImage} alt="Board" className="w-full h-full object-contain" />
                     <div className="absolute inset-0">
                         {players.map((p, i) => {
                             const coords = tileCoords[p.pos] || { x: 0, y: 0 };
-                            const offsets = [
-                                { x: -1.5, y: -1.5 }, { x:  1.5, y: -1.5 },
-                                { x: -1.5, y:  1.5 }, { x:  1.5, y:  1.5 },
-                                { x:  0,   y: -3   }, { x:  0,   y:  3   },
-                            ];
+                            const offsets = [{x:-1.5,y:-1.5},{x:1.5,y:-1.5},{x:-1.5,y:1.5},{x:1.5,y:1.5},{x:0,y:-3},{x:0,y:3}];
                             const offset = offsets[i] || { x: 0, y: 0 };
                             return (
                                 <div key={i} className="absolute w-[4.5%] aspect-square rounded-full border-2 border-white shadow-lg transition-all duration-700 z-20 flex items-center justify-center text-[8px] text-white font-black"
@@ -837,7 +1126,6 @@ const App = () => {
                     </div>
                 </div>
 
-                {/* Controls */}
                 <div className="flex-1 p-4 flex flex-col items-center justify-between">
                     <div className="text-center w-full">
                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
@@ -846,16 +1134,12 @@ const App = () => {
                         </p>
                         <Dice3D value={diceVal} rolling={isRolling} />
                     </div>
-
                     <div className="w-full space-y-3">
                         <button onClick={rollDice}
                             disabled={!isMyTurn || isRolling || !!showEffectModal || !!showTileZoom || !!showInviteModal}
-                            className={`w-full py-5 rounded-2xl font-black text-xl text-white shadow-xl active:scale-95 transition-all ${
-                                !isMyTurn ? 'bg-slate-300' : isRolling ? 'bg-slate-300' : 'bg-[#2D5A27]'
-                            }`}>
+                            className={`w-full py-5 rounded-2xl font-black text-xl text-white shadow-xl active:scale-95 transition-all ${!isMyTurn ? 'bg-slate-300' : isRolling ? 'bg-slate-300' : 'bg-[#2D5A27]'}`}>
                             {isRolling ? 'กำลังทอย...' : isOffline ? `ทอยลูกเต๋า (${currentPlayer.name})` : isMyTurn ? 'ทอยลูกเต๋า' : `รอ ${currentPlayer.name}...`}
                         </button>
-
                         <div className="log-container p-4 rounded-2xl text-white min-h-[80px]">
                             <div className="text-[9px] uppercase font-bold text-green-300 mb-2">ประวัติการเล่น</div>
                             <div className="space-y-1">
@@ -867,33 +1151,24 @@ const App = () => {
                     </div>
                 </div>
 
-                {/* TileZoom Modal */}
-                {showTileZoom && (
-                    <TileZoomModal tile={showTileZoom.tile} player={showTileZoom.player} coord={showTileZoom.coord} tileIdx={showTileZoom.tileIdx} onDone={showTileZoom.onDone} />
-                )}
+                {showTileZoom && <TileZoomModal tile={showTileZoom.tile} player={showTileZoom.player} coord={showTileZoom.coord} tileIdx={showTileZoom.tileIdx} onDone={showTileZoom.onDone} />}
 
-                {/* Effect Modal (move / skip) */}
                 {showEffectModal && (
                     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-6">
                         <div className="bg-white rounded-[2.5rem] p-8 w-full max-w-xs text-center border-t-[12px] border-[#2D5A27]">
                             <h2 className="text-xl font-black text-slate-800 mb-2">{showEffectModal.tile.name}</h2>
                             <p className="text-sm text-slate-500 mb-8 font-bold leading-relaxed">{showEffectModal.tile.desc}</p>
-                            <button onClick={showEffectModal.onClose}
-                                className="w-full py-4 rounded-xl font-black text-white"
-                                style={{ background: showEffectModal.player.hex }}>ตกลง</button>
+                            <button onClick={showEffectModal.onClose} className="w-full py-4 rounded-xl font-black text-white" style={{ background: showEffectModal.player.hex }}>ตกลง</button>
                         </div>
                     </div>
                 )}
 
-                {/* Invite Modal – ช่อง 22 ชวนเพื่อนใช้เกรซ */}
                 {showInviteModal && (
                     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-6">
                         <div className="bg-white rounded-[2.5rem] p-8 w-full max-w-xs text-center border-t-[12px] border-[#2D5A27]">
                             <p className="text-3xl mb-2">🤝</p>
                             <h2 className="text-lg font-black text-slate-800 mb-1">ชวนเพื่อนใช้เกรซ</h2>
-                            <p className="text-sm text-slate-500 mb-5 font-bold leading-relaxed">
-                                เลือก 1 คน เดินหน้าพร้อมคุณ 1 ช่อง
-                            </p>
+                            <p className="text-sm text-slate-500 mb-5 font-bold leading-relaxed">เลือก 1 คน เดินหน้าพร้อมคุณ 1 ช่อง</p>
                             <div className="space-y-2">
                                 {showInviteModal.players.map((p, i) => {
                                     if (i === showInviteModal.playerIdx) return null;
