@@ -111,18 +111,20 @@ const SHOPS = [
         id: 'sukthukkham',
         name: 'สุขทุกคำ',
         emoji: '🍜',
+        logo: 'https://drive.google.com/thumbnail?id=1WvOCMrvZ8Nojjvk6FAxHccJf7bM_c56s&sz=w300',
         color: '#E65100',
         bgColor: '#FFF3E0',
         type: 'percent',
         discount: '10%',
         desc: 'ส่วนลด 10% สำหรับเมนูทุกอย่าง',
         totalStock: 1000,
-        codes: null, // ใช้ type percent ไม่มี code pool
+        codes: null,
     },
     {
         id: 'doitung',
         name: 'ดอยตุง',
         emoji: '☕',
+        logo: 'https://drive.google.com/thumbnail?id=15Sovkpe2wSyjyqhNqJPT6IalHP7YjDrC&sz=w300',
         color: '#4E342E',
         bgColor: '#EFEBE9',
         type: 'percent',
@@ -135,6 +137,7 @@ const SHOPS = [
         id: 'shopee',
         name: 'Shopee',
         emoji: '🛍️',
+        logo: 'https://drive.google.com/thumbnail?id=1WMia3f5MWgKF4VY7f-Hp5EIVPKMd93MM&sz=w300',
         color: '#EE4D2D',
         bgColor: '#FFF0ED',
         type: 'code',
@@ -147,6 +150,7 @@ const SHOPS = [
         id: 'lazada',
         name: 'Lazada',
         emoji: '📦',
+        logo: 'https://drive.google.com/thumbnail?id=1oDWY5bLLfXpt4Nx_0W195BXrizs6MqkJ&sz=w300',
         color: '#0F146D',
         bgColor: '#E8EAF6',
         type: 'code',
@@ -159,6 +163,7 @@ const SHOPS = [
         id: 'lineoa',
         name: 'Line OA',
         emoji: '💬',
+        logo: 'https://drive.google.com/thumbnail?id=1jj_Uzu_CJwNiwTrRwBmRJCkANWRr4CTF&sz=w300',
         color: '#06C755',
         bgColor: '#E8F5E9',
         type: 'code',
@@ -560,10 +565,20 @@ const TreasureBox = ({ winner, onClose }) => {
                     <div className="coupon-glow rounded-3xl overflow-hidden" style={{background: shop.bgColor}}>
                         {/* Shop Header */}
                         <div className="px-6 py-5 text-center" style={{background: shop.color}}>
-                            <p className="text-white/70 text-xs font-bold uppercase tracking-widest mb-1">Gracz Replace × {shop.name}</p>
-                            <p className="text-5xl mb-2">{shop.emoji}</p>
-                            <p className="text-white text-2xl font-black">{shop.name}</p>
-                            <p className="text-white/80 text-sm font-bold mt-1">{shop.discount}</p>
+                            <p className="text-white/70 text-xs font-bold uppercase tracking-widest mb-2">Gracz Replace × {shop.name}</p>
+                            <div className="w-20 h-20 mx-auto mb-2 rounded-2xl bg-white flex items-center justify-center overflow-hidden shadow-lg">
+                                {shop.logo ? (
+                                    <img
+                                        src={shop.logo}
+                                        alt={shop.name}
+                                        className="w-full h-full object-contain p-1.5"
+                                        onError={e => { e.target.style.display='none'; e.target.parentNode.querySelector('.logo-fallback').style.display='block'; }}
+                                    />
+                                ) : null}
+                                <span className="logo-fallback text-4xl" style={{display: shop.logo ? 'none' : 'block'}}>{shop.emoji}</span>
+                            </div>
+                            <p className="text-white text-xl font-black">{shop.name}</p>
+                            <p className="text-white/80 text-sm font-bold mt-0.5">{shop.discount}</p>
                         </div>
 
                         {/* Divider */}
