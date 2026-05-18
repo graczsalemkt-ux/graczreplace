@@ -115,8 +115,8 @@ const SHOPS = [
         color: '#E65100',
         bgColor: '#FFF3E0',
         type: 'percent',
-        discount: '10%',
-        desc: 'ส่วนลด 10% สำหรับเมนูทุกอย่าง',
+        discount: 'ส่วนลด 10%',
+        desc: 'ลด 10% สูงสุด 50บาท/บิล เฉพาะเมนูที่ร่วมรายการ',
         totalStock: 1000,
         codes: null,
     },
@@ -612,7 +612,10 @@ const TreasureBox = ({ winner, onClose }) => {
                     <div className="mt-4 space-y-2">
                         <div className="bg-yellow-400 rounded-2xl px-4 py-3 text-center">
                             <p className="text-[#1a3a14] text-xs font-black leading-relaxed">
-                                📸 แคปหน้าจอส่งไลน์มาที่ <span className="underline">@gracz</span> เพื่อรับของรางวัลเลย!
+                                {shop.id === 'sukthukkham'
+                                    ? <>📸 แคปหน้าจอแล้วแสดงที่หน้าร้านหรือผ่านทางไลน์ Id <span className="underline">Line@sooktookkum</span></>
+                                    : <>📸 แคปหน้าจอส่งไลน์มาที่ <span className="underline">@gracz</span> เพื่อรับของรางวัลเลย!</>
+                                }
                             </p>
                         </div>
                         {code && (
