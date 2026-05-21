@@ -305,6 +305,7 @@ const AdminPage = ({ onBack }) => {
     const [logs, setLogs] = useState([]);
     const [loading, setLoading] = useState(true);
     const [resetConfirm, setResetConfirm] = useState(null);
+    const [previewShop, setPreviewShop] = useState(null);
 
     useEffect(() => {
         const unsub1 = dbOn('shopStock', (data) => { setStockData(data); setLoading(false); });
@@ -449,6 +450,72 @@ const AdminPage = ({ onBack }) => {
                                     </div>
                                 );
                             })}
+                        </div>
+                    )}
+                </div>
+
+                {/* Coupon Preview */}
+                <div className="bg-slate-800 rounded-2xl overflow-hidden">
+                    <div className="px-4 py-3 border-b border-slate-700">
+                        <p className="font-black text-sm">🎨 Preview คูปองแต่ละร้าน</p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">กดเลือกร้านเพื่อดูหน้าตาคูปอง</p>
+                    </div>
+                    <div className="p-3 flex flex-wrap gap-2">
+                        {SHOPS.map(shop => (
+                            <button key={shop.id} onClick={() => setPreviewShop(previewShop?.id === shop.id ? null : shop)}
+                                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-white text-xs font-bold transition-all active:scale-95"
+                                style={{background: previewShop?.id === shop.id ? shop.color : '#374151', border: `2px solid ${previewShop?.id === shop.id ? shop.color : 'transparent'}`}}>
+                                <span>{shop.emoji}</span> {shop.name}
+                            </button>
+                        ))}
+                    </div>
+
+                    {previewShop && (
+                        <div className="px-3 pb-4">
+                            <div className="rounded-2xl overflow-hidden border-2" style={{borderColor: previewShop.color}}>
+                                {/* Shop Header */}
+                                <div className="px-6 py-4 text-center" style={{background: previewShop.color}}>
+                                    <p className="text-white/70 text-[10px] font-bold uppercase tracking-widest mb-2">Gracz Replace × {previewShop.name}</p>
+                                    <div className="w-full mx-auto mb-2 overflow-hidden" style={{margin:'0 -24px', width:'calc(100% + 48px)'}}>
+                                        {previewShop.logo ? (
+                                            <img src={previewShop.logo} alt={previewShop.name} className="w-full object-cover" style={{display:'block'}} />
+                                        ) : null}
+                                    </div>
+                                    <p className="text-white text-lg font-black mt-2">{previewShop.name}</p>
+                                    <p className="text-white/80 text-xs font-bold mt-0.5">{previewShop.discount}</p>
+                                </div>
+                                {/* Divider */}
+                                <div className="flex items-center px-4 py-1.5" style={{background: previewShop.bgColor}}>
+                                    <div className="flex-1 border-t-2 border-dashed border-slate-300"/>
+                                    <div className="mx-2 text-slate-400 text-xs">✂</div>
+                                    <div className="flex-1 border-t-2 border-dashed border-slate-300"/>
+                                </div>
+                                {/* Detail */}
+                                <div className="px-5 pb-4 text-center" style={{background: previewShop.bgColor}}>
+                                    <p className="text-slate-600 text-xs font-bold mb-2 leading-relaxed">{previewShop.desc}</p>
+                                    <div className="rounded-xl py-2 px-3 border-2 border-dashed" style={{borderColor: previewShop.color, background:'white'}}>
+                                        <p className="text-[9px] text-slate-400 font-bold uppercase mb-0.5">
+                                            {previewShop.type === 'code' ? 'โค้ดส่วนลด (ตัวอย่าง)' : 'ประเภทส่วนลด'}
+                                        </p>
+                                        <p className="text-lg font-black tracking-widest" style={{color: previewShop.color}}>
+                                            {previewShop.type === 'code' ? previewShop.codes[0] : `ส่วนลด ${previewShop.discount}`}
+                                        </p>
+                                    </div>
+                                    {previewShop.id === 'sukthukkham' ? (
+                                        <div className="bg-yellow-400 rounded-xl px-3 py-2 mt-2 text-center">
+                                            <p className="text-[#1a3a14] text-[10px] font-black leading-relaxed">
+                                                📸 แคปหน้าจอแล้วแสดงที่หน้าร้านหรือผ่านทางไลน์ Id Line@sooktookkum
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <div className="bg-yellow-400 rounded-xl px-3 py-2 mt-2 text-center">
+                                            <p className="text-[#1a3a14] text-[10px] font-black leading-relaxed">
+                                                📸 แคปหน้าจอส่งไลน์มาที่ @gracz เพื่อรับของรางวัลเลย!
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
                         </div>
                     )}
                 </div>
