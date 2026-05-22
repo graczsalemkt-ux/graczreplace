@@ -498,7 +498,7 @@ const AdminPage = ({ onBack }) => {
                                             {previewShop.type === 'code' ? 'โค้ดส่วนลด (ตัวอย่าง)' : 'ประเภทส่วนลด'}
                                         </p>
                                         <p className="text-lg font-black tracking-widest" style={{color: previewShop.color}}>
-                                            {previewShop.type === 'code' ? previewShop.codes[0] : `ส่วนลด ${previewShop.discount}`}
+                                            {previewShop.type === 'code' ? previewShop.codes[0] : previewShop.discount}
                                         </p>
                                     </div>
                                     {previewShop.id === 'sukthukkham' ? (
@@ -668,7 +668,7 @@ const TreasureBox = ({ winner, onClose }) => {
                             ) : (
                                 <div className="rounded-xl py-3 px-4 mb-2 border-2 border-dashed" style={{borderColor: shop.color, background:'white'}}>
                                     <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">ประเภทส่วนลด</p>
-                                    <p className="text-xl font-black" style={{color: shop.color}}>ส่วนลด {shop.discount}</p>
+                                    <p className="text-xl font-black" style={{color: shop.color}}>{shop.discount}</p>
                                     <p className="text-[10px] text-slate-400 mt-1">แคปหน้าจอเพื่อรับสิทธิ์</p>
                                 </div>
                             )}
