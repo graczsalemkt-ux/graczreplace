@@ -511,16 +511,13 @@ const AdminPage = ({ onBack }) => {
                                             </>
                                         )}
                                     </div>
-                                    {previewShop.id === 'sukthukkham' ? (
+                                    {(previewShop.id !== 'shopee' && previewShop.id !== 'lazada') && (
                                         <div className="bg-yellow-400 rounded-xl px-3 py-2 mt-2 text-center">
                                             <p className="text-[#1a3a14] text-[10px] font-black leading-relaxed">
-                                                📸 แคปหน้าจอแล้วแสดงที่หน้าร้านหรือผ่านทางไลน์ Id Line@sooktookkum
-                                            </p>
-                                        </div>
-                                    ) : (
-                                        <div className="bg-yellow-400 rounded-xl px-3 py-2 mt-2 text-center">
-                                            <p className="text-[#1a3a14] text-[10px] font-black leading-relaxed">
-                                                📸 แคปหน้าจอส่งไลน์มาที่ @gracz เพื่อรับของรางวัลเลย!
+                                                {previewShop.id === 'sukthukkham'
+                                                    ? '📸 แคปหน้าจอแล้วแสดงที่หน้าร้านหรือผ่านทางไลน์ Id Line@sooktookkum'
+                                                    : '📸 แคปหน้าจอส่งไลน์มาที่ @gracz เพื่อรับของรางวัลเลย!'
+                                                }
                                             </p>
                                         </div>
                                     )}
