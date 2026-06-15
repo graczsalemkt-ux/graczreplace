@@ -186,6 +186,7 @@ const initShopStock = async () => {
             totalStock: shop.totalStock,
             remaining: shop.totalStock,
             issued: 0,
+            enabled: true,
             // สำหรับ code pool เก็บ index ล่าสุดที่ใช้ไป
             codeIndex: shop.type === 'code' ? 0 : null,
         };
@@ -198,8 +199,8 @@ const claimCoupon = async () => {
     const stock = await dbGet('shopStock');
     if (!stock) return null;
 
-    // หาร้านที่ยังมี stock
-    const available = SHOPS.filter(s => stock[s.id] && stock[s.id].remaining > 0);
+    // หาร้านที่ยังมี stock และเปิดใช้งานอยู่ (enabled !== false ถือว่าเปิด เป็นค่า default)
+    const available = SHOPS.filter(s => stock[s.id] && stock[s.id].remaining > 0 && stock[s.id].enabled !== false);
     if (available.length === 0) return null;
 
     // Random ร้าน
@@ -331,6 +332,12 @@ const AdminPage = ({ onBack }) => {
         setResetConfirm(null);
     };
 
+    const handleToggleEnabled = async (shopId, currentEnabled) => {
+        await dbUpd(`shopStock/${shopId}`, {
+            enabled: currentEnabled === false ? true : false,
+        });
+    };
+
     const formatDate = (iso) => {
         try {
             const d = new Date(iso);
@@ -379,8 +386,9 @@ const AdminPage = ({ onBack }) => {
                                 if (!s) return null;
                                 const pct = Math.round((s.remaining / shop.totalStock) * 100);
                                 const barColor = pct > 50 ? '#4ade80' : pct > 20 ? '#fbbf24' : '#f87171';
+                                const isEnabled = s.enabled !== false;
                                 return (
-                                    <div key={shop.id} className="px-4 py-3">
+                                    <div key={shop.id} className={`px-4 py-3 transition-opacity ${!isEnabled ? 'opacity-50' : ''}`}>
                                         <div className="flex items-center justify-between mb-2">
                                             <div className="flex items-center gap-2">
                                                 <span className="text-lg">{shop.emoji}</span>
@@ -402,17 +410,29 @@ const AdminPage = ({ onBack }) => {
                                             <div className="h-1.5 rounded-full transition-all" style={{width:`${pct}%`, background: barColor}}/>
                                         </div>
                                         <div className="flex justify-between items-center">
-                                            <p className="text-[10px] text-slate-500">
-                                                {s.lastIssuedAt ? `ล่าสุด: ${formatDate(s.lastIssuedAt)}` : 'ยังไม่มีการออก'}
-                                            </p>
-                                            {resetConfirm === shop.id ? (
-                                                <div className="flex gap-1">
-                                                    <button onClick={() => handleReset(shop.id)} className="text-[10px] bg-red-500 px-2 py-1 rounded-lg font-bold">ยืนยัน</button>
-                                                    <button onClick={() => setResetConfirm(null)} className="text-[10px] bg-slate-600 px-2 py-1 rounded-lg font-bold">ยกเลิก</button>
-                                                </div>
-                                            ) : (
-                                                <button onClick={() => setResetConfirm(shop.id)} className="text-[10px] text-slate-500 hover:text-red-400 font-bold transition-colors">รีเซ็ต</button>
-                                            )}
+                                            <div className="flex items-center gap-2">
+                                                <p className="text-[10px] text-slate-500">
+                                                    {s.lastIssuedAt ? `ล่าสุด: ${formatDate(s.lastIssuedAt)}` : 'ยังไม่มีการออก'}
+                                                </p>
+                                                {!isEnabled && <span className="text-[10px] bg-red-500/20 text-red-400 px-2 py-0.5 rounded-full font-bold">ปิดการแจก</span>}
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                {resetConfirm === shop.id ? (
+                                                    <div className="flex gap-1">
+                                                        <button onClick={() => handleReset(shop.id)} className="text-[10px] bg-red-500 px-2 py-1 rounded-lg font-bold">ยืนยัน</button>
+                                                        <button onClick={() => setResetConfirm(null)} className="text-[10px] bg-slate-600 px-2 py-1 rounded-lg font-bold">ยกเลิก</button>
+                                                    </div>
+                                                ) : (
+                                                    <button onClick={() => setResetConfirm(shop.id)} className="text-[10px] text-slate-500 hover:text-red-400 font-bold transition-colors">รีเซ็ต</button>
+                                                )}
+                                                {/* Toggle Switch */}
+                                                <button onClick={() => handleToggleEnabled(shop.id, s.enabled)}
+                                                    className="relative w-10 h-5 rounded-full transition-colors flex-shrink-0"
+                                                    style={{background: isEnabled ? '#4ade80' : '#475569'}}>
+                                                    <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all"
+                                                        style={{left: isEnabled ? '22px' : '2px'}}/>
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                 );
